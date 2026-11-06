@@ -1,63 +1,68 @@
-"""Pydantic models for API."""
-from __future__ import annotations
-from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+"""Controller accepts only typed, explicit game capabilities."""
+
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
-class LoginRequest(BaseModel):
-    username: str
-    password: str
+class Strict(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
+class LoginRequest(Strict):
+    username: str = Field(min_length=1, max_length=128)
+    password: str = Field(min_length=1, max_length=1024)
 
 
-class PortMapping(BaseModel):
-    host: int
-    container: int
-    protocol: str = "udp"  # udp/tcp/both
+class Settings(Strict):
+    server_name: str = Field(
+        default="GameHub Palworld", min_length=1, max_length=80, pattern=r'^[^\r\n"\\\x00-\x1f]+$'
+    )
+    description: str = Field(default="Managed by GameHub", max_length=200, pattern=r'^[^\r\n"\\\x00-\x1f]*$')
+    players: int = Field(default=16, ge=1, le=32)
+    server_password: str = Field(default="", max_length=128, pattern=r'^[^\r\n"\\\x00-\x1f]*$')
+    admin_password: str = Field(min_length=16, max_length=128, pattern=r'^[^\r\n"\\\x00-\x1f]+$')
 
 
-class CreateServerRequest(BaseModel):
-    name: str = Field(..., min_length=1, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
-    game: str  # template id: palworld, minecraft, valheim, zomboid, generic
-    ports: Optional[List[PortMapping]] = None  # override defaults
-    env: Optional[Dict[str, str]] = None
-    image: Optional[str] = None  # override (generic / custom)
-    rcon_password: Optional[str] = None
-    extra_args: Optional[str] = None
-    start: bool = True  # False = create container only, don't start it
-    dockerfile: Optional[str] = None  # paste a Dockerfile -> built server-side, tagged per-server
+class CreateServerRequest(Strict):
+    name: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,39}$")
+    game: Literal["palworld"] = "palworld"
+    game_port: int = Field(default=8211, ge=1024, le=65535)
+    settings: Settings
 
 
-class UpdateEnvRequest(BaseModel):
-    env: Dict[str, str]
+class ActionRequest(Strict):
+    action: Literal["start", "stop", "restart", "install", "update", "cancel", "remove"]
+    confirmation: str = ""
 
 
-class RconRequest(BaseModel):
-    command: str
+class ModMetadata(Strict):
+    name: str = Field(default="", max_length=100)
+    description: str = Field(default="", max_length=1000)
+    version: str = Field(default="unknown", max_length=80)
+    author: str = Field(default="unknown", max_length=100)
+    source: str = Field(default="local upload", max_length=500)
+    dependencies: list[str] = Field(default_factory=list, max_length=40)
 
 
-class ConfigSaveRequest(BaseModel):
-    content: str
+class ModAction(Strict):
+    action: Literal["enable", "disable", "remove", "rollback"]
+    acknowledge_unverified: bool = False
 
 
-class BackupResponse(BaseModel):
-    filename: str
-    size_bytes: int
-    created: str
+class URLInstall(Strict):
+    url: str = Field(max_length=2048)
+    filename: str = Field(max_length=180)
+    sha256: str = Field(pattern=r"^[a-fA-F0-9]{64}$")
+    update_id: str = ""
 
 
-class ServerStatus(BaseModel):
-    id: str
-    name: str
-    game: str
-    state: str  # running, stopped, missing, etc.
-    image: str
-    ports: List[Dict[str, Any]] = []
-    cpu_percent: Optional[float] = None
-    mem_mb: Optional[float] = None
-    players_online: Optional[int] = None
-    uptime: Optional[str] = None
+class RestoreRequest(Strict):
+    filename: str = Field(max_length=180)
+    confirmation: str = ""
+    dry_run: bool = True
+
+
+class BackupPolicy(Strict):
+    interval_hours: int = Field(default=0, ge=0, le=720)
+    retain: int = Field(default=7, ge=1, le=100)

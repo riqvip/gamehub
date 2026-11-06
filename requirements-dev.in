@@ -1,0 +1,6 @@
+-r manager/requirements.in
+pytest>=8,<10
+ruff
+bandit
+pip-audit
+pyyaml

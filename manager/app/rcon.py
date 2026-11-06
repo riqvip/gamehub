@@ -1,95 +1,85 @@
-"""Minimal Source RCON client (Palworld, Minecraft Java, Zomboid, etc)."""
+"""Bounded Source RCON client, used only with owned game-network addresses."""
+
 import socket
 import struct
+import time
 
 
-class RconError(Exception):
+class RconError(ValueError):
     pass
 
 
 class RconClient:
-    """Sync RCON client implementing Valve Source RCON protocol."""
+    def __init__(self, host, port, password, timeout=3):
+        self.host, self.port, self.password, self.timeout = host, port, password, timeout
+        self._sock = None
+        self.deadline = 0
 
-    def __init__(self, host: str, port: int, password: str, timeout: float = 5.0):
-        self.host = host
-        self.port = port
-        self.password = password
-        self.timeout = timeout
-        self._sock: socket.socket | None = None
-        self._req_id = 1
+    def _packet(self, rid, kind, body):
+        data = body.encode() + b"\0\0"
+        return struct.pack("<iii", len(data) + 8, rid, kind) + data
 
-    def _packet(self, req_id: int, ptype: int, body: str) -> bytes:
-        data = body.encode("utf-8") + b"\x00\x00"
-        size = 4 + 4 + len(data)
-        return struct.pack("<iii", size, req_id, ptype) + data
+    def _recvall(self, size):
+        output = bytearray()
+        while len(output) < size:
+            remaining = self.deadline - time.monotonic()
+            if remaining <= 0:
+                raise RconError("RCON deadline exceeded")
+            self._sock.settimeout(remaining)
+            chunk = self._sock.recv(size - len(output))
+            if not chunk:
+                raise RconError("Truncated RCON packet")
+            output.extend(chunk)
+        return bytes(output)
 
     def _read_packet(self):
-        header = self._recvall(12)
-        if len(header) < 12:
-            raise RconError("Short RCON response")
-        size, req_id, ptype = struct.unpack("<iii", header)
-        body = self._recvall(max(0, size - 8))
-        # strip 2 nulls
-        text = body[:-2].decode("utf-8", errors="replace") if len(body) >= 2 else ""
-        return req_id, ptype, text
-
-    def _recvall(self, n: int) -> bytes:
-        buf = b""
-        while len(buf) < n:
-            chunk = self._sock.recv(n - len(buf))  # type: ignore
-            if not chunk:
-                break
-            buf += chunk
-        return buf
+        size, rid, kind = struct.unpack("<iii", self._recvall(12))
+        if not 10 <= size <= 1024 * 1024:
+            raise RconError("Invalid RCON packet size")
+        data = self._recvall(size - 8)
+        if not data.endswith(b"\0\0"):
+            raise RconError("Invalid RCON terminator")
+        return rid, kind, data[:-2].decode("utf-8", errors="replace")
 
     def connect(self):
+        self.deadline = time.monotonic() + self.timeout
         self._sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
-        # auth: type 3
-        assert self._sock is not None
-        self._sock.sendall(self._packet(self._req_id, 3, self.password))
-        req_id, _, _ = self._read_packet()
-        if req_id == -1:
-            raise RconError("RCON auth failed (bad password?)")
-        self._req_id += 1
+        self._sock.sendall(self._packet(1, 3, self.password))
+        for _ in range(2):
+            rid, kind, _ = self._read_packet()
+            if rid == -1:
+                raise RconError("RCON authentication failed")
+            if rid == 1 and kind == 2:
+                return
+        raise RconError("Invalid RCON authentication response")
 
-    def exec(self, command: str) -> str:
-        if self._sock is None:
-            self.connect()
-        assert self._sock is not None
-        rid = self._req_id
-        self._req_id += 1
-        self._sock.sendall(self._packet(rid, 2, command))
-        # read response(s); Palworld sends one packet, sometimes + empty terminator
-        _, _, body = self._read_packet()
-        # drain any trailing empty packet without blocking long
-        self._sock.settimeout(0.3)
-        try:
-            while True:
-                _, _, extra = self._read_packet()
-                if not extra:
-                    break
-                body += extra
-        except Exception:
-            pass
-        finally:
-            self._sock.settimeout(self.timeout)
+    def exec(self, command):
+        self.deadline = time.monotonic() + self.timeout
+        self._sock.sendall(self._packet(2, 2, command))
+        rid, _, body = self._read_packet()
+        # Palworld v1.0.5 replies with ID 0 rather than echoing the request ID.
+        # Each helper connection executes exactly one command, so accept that known variant.
+        if rid not in (0, 2):
+            raise RconError("Unexpected RCON response ID")
         return body
 
     def close(self):
-        try:
-            if self._sock:
-                self._sock.close()
-        finally:
-            self._sock = None
+        if self._sock:
+            self._sock.close()
+        self._sock = None
 
     def __enter__(self):
-        self.connect()
+        try:
+            self.connect()
+        except (OSError, ValueError):
+            self.close()
+            raise
         return self
 
     def __exit__(self, *args):
         self.close()
 
 
-def rcon_command(host: str, port: int, password: str, command: str, timeout: float = 5.0) -> str:
-    with RconClient(host, port, password, timeout) as c:
-        return c.exec(command)
+def rcon_command(host, port, password, command, timeout=3):
+    with RconClient(host, port, password, timeout) as client:
+        return client.exec(command)

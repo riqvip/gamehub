@@ -1,27 +1,40 @@
-"""Central configuration via environment variables."""
+"""Environment configuration. Secrets may be mounted as individual files."""
+
 import os
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = Path(os.getenv("DATA_DIR", str(BASE_DIR / ".." / "data")))
-BACKUP_DIR = Path(os.getenv("BACKUP_DIR", str(BASE_DIR / ".." / "backups")))
-INSTANCES_FILE = Path(os.getenv("INSTANCES_FILE", str(DATA_DIR / "instances.json")))
 
+def secret(name: str) -> str:
+    filename = os.getenv(name + "_FILE")
+    return Path(filename).read_text().strip() if filename else os.getenv(name, "")
+
+
+DATA_DIR = Path(os.getenv("DATA_DIR", "/state"))
+CONFIG_DIR = Path(os.getenv("CONFIG_DIR", "/configuration"))
+BACKUP_DIR = Path(os.getenv("BACKUP_DIR", "/backups"))
+GAME_ROOT = Path(os.getenv("GAME_ROOT", "/games"))
+HOST_GAME_ROOT = os.getenv("HOST_GAME_ROOT", "/opt/data/palworld/gamehub")
 ADMIN_USER = os.getenv("ADMIN_USER", "admin")
-# Set ADMIN_PASS in production! Default is changeme.
-ADMIN_PASS = os.getenv("ADMIN_PASS", "changeme")
-SECRET_KEY = os.getenv("SECRET_KEY", "change-this-secret-in-production")
-TOKEN_EXPIRE_MINUTES = int(os.getenv("TOKEN_EXPIRE_MINUTES", "720"))
-
-# Comma-separated IPs/CIDRs allowed to reach /admin + management API.
-# Empty = no IP restriction (login still required). Localhost always allowed.
+ADMIN_PASSWORD_HASH = secret("ADMIN_PASSWORD_HASH")
+CONTROLLER_TOKEN = secret("CONTROLLER_TOKEN")
+CONTROLLER_URL = os.getenv("CONTROLLER_URL", "http://controller:8001")
+TRUSTED_PROXIES = os.getenv("TRUSTED_PROXIES", "")
 ADMIN_ALLOWED_IPS = os.getenv("ADMIN_ALLOWED_IPS", "")
-
-# Docker host - defaults to socket. Manager container mounts /var/run/docker.sock
-DOCKER_HOST = os.getenv("DOCKER_HOST", "unix:///var/run/docker.sock")
-
-# When True (dev without docker), API runs in mock mode.
-MOCK_DOCKER = os.getenv("MOCK_DOCKER", "false").lower() == "true"
-
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1,[::1],homeserver").split(",")
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true").lower() == "true"
+SESSION_SECONDS = int(os.getenv("SESSION_SECONDS", "3600"))
+MAX_UPLOAD = int(os.getenv("MAX_UPLOAD_BYTES", str(128 * 1024**2)))
+MAX_EXTRACTED = int(os.getenv("MAX_EXTRACTED_BYTES", str(512 * 1024**2)))
+MAX_FILES = int(os.getenv("MAX_ARCHIVE_FILES", "2048"))
+DOWNLOAD_HOSTS = frozenset(
+    x.strip().lower() for x in os.getenv("MOD_DOWNLOAD_HOSTS", "").split(",") if x.strip()
+)
+PALWORLD_IMAGE = os.getenv("PALWORLD_IMAGE", "")
+GAME_NETWORK = os.getenv("GAME_NETWORK", "gamehub-games")
+GAME_BIND_IP = os.getenv("GAME_BIND_IP", "127.0.0.1")
+GAME_MEMORY = os.getenv("GAME_MEMORY", "16g")
+GAME_CPUS = int(os.getenv("GAME_CPUS", "4"))
+INSTALL_TIMEOUT = int(os.getenv("INSTALL_TIMEOUT_SECONDS", "1800"))
+INSTALL_BACKEND = os.getenv("INSTALL_BACKEND", "depotdownloader")
+MIN_FREE_BYTES = int(os.getenv("MIN_FREE_BYTES", str(12 * 1024**3)))
+BACKUP_MAX_BYTES = int(os.getenv("BACKUP_MAX_BYTES", str(16 * 1024**3)))

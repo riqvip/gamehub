@@ -1,162 +1,461 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>GameHub Admin — Game Server Manager</title>
-<link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2" />
-<link rel="stylesheet" href="/static/styles.css?v=2" />
-</head>
-<body>
-<div id="login-view" class="center">
-  <div class="card login-card">
-    <h1>🎮 GameHub</h1>
-    <p class="muted">Self-hosted game server manager</p>
-    <input id="login-user" placeholder="Username" value="admin" autocomplete="username" />
-    <input id="login-pass" type="password" placeholder="Password" autocomplete="current-password" />
-    <button id="login-btn" class="primary">Login</button>
-    <p id="login-err" class="error"></p>
-    <p class="muted small">Default: admin / changeme — change ADMIN_PASS in .env!</p>
-  </div>
-</div>
-
-<div id="app" class="hidden">
-  <aside id="sidebar">
-    <div class="brand">🎮 GameHub <button id="logout" title="Logout">⏻</button></div>
-    <div class="side-label">SERVERS <button id="add-server-btn" class="mini">+ New</button></div>
-    <div id="server-list"></div>
-    <div class="side-label">SYSTEM</div>
-    <div id="system-box" class="muted small">…</div>
-    <div class="side-label">TEMPLATES</div>
-    <div id="template-box" class="muted small"></div>
-  </aside>
-  <main>
-    <div id="empty-state" class="card">
-      <h2>No server selected</h2>
-      <p>Create one with <b>+ New</b> — pick Palworld, Minecraft, Valheim, Zomboid or Generic.</p>
-      <div id="howto">
-        <h3>How adding games works</h3>
-        <ol>
-          <li>Choose a template (each = a Docker image + ports + env defaults).</li>
-          <li>To add a <b>new game</b>: edit <code>manager/app/games/templates.py</code> — copy a block, set image/ports/env, restart. It appears here automatically. Generic template needs no code: just paste any image.</li>
-        </ol>
-      </div>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>GameHub · Your worlds, in order</title>
+    <link rel="icon" href="/static/favicon.svg" />
+    <link rel="stylesheet" href="/static/styles.css" />
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <div id="notice" role="status" aria-live="polite" hidden></div>
+    <section id="login-view" class="login-screen">
+      <form id="login-form" class="login-card">
+        <span class="brand-icon">G</span>
+        <p class="eyebrow">YOUR PRIVATE CONTROL ROOM</p>
+        <h1>Welcome to GameHub.</h1>
+        <p class="muted">A little less maintenance. A lot more adventure.</p>
+        <label
+          >Username<input
+            id="login-user"
+            autocomplete="username"
+            required
+            value="admin"
+            maxlength="128"
+        /></label>
+        <label
+          >Password<input
+            id="login-pass"
+            type="password"
+            autocomplete="current-password"
+            required
+            maxlength="1024"
+        /></label>
+        <button class="primary" type="submit">
+          Sign in <span aria-hidden="true">→</span>
+        </button>
+        <p id="login-error" class="error" role="alert"></p>
+        <p class="small muted">
+          Private by default. Access over your trusted network.
+        </p>
+      </form>
+    </section>
+    <div id="app" class="shell" hidden>
+      <aside>
+        <a class="brand" href="/">
+          <span class="brand-icon">G</span> GameHub
+          <small>SELF HOSTED</small></a
+        >
+        <p class="nav-label">WORKSPACE</p>
+        <button class="nav-link" id="overview-link">◈ &nbsp; Overview</button>
+        <div class="nav-label nav-row">
+          YOUR SERVERS
+          <button
+            id="new-server"
+            class="icon-button"
+            aria-label="Create server"
+          >
+            +
+          </button>
+        </div>
+        <div id="server-list"></div>
+        <button class="nav-link" id="activity-link">◷ &nbsp; Activity</button>
+        <div class="sidebar-foot">
+          <span class="dot"></span> Private management<br /><span
+            class="muted small"
+            >Palworld · Native Linux</span
+          ><button id="logout">Sign out</button>
+        </div>
+      </aside>
+      <main>
+        <header class="topbar">
+          <span id="breadcrumb">Workspace / Overview</span
+          ><span class="tag">LOCAL CONTROL</span>
+        </header>
+        <section id="overview">
+          <p class="eyebrow">YOUR NEXT SESSION STARTS HERE</p>
+          <h1>Your worlds, in order.</h1>
+          <p class="muted">A clear view of the servers you manage.</p>
+          <div id="overview-cards" class="overview-grid"></div>
+          <div class="card">
+            <h2>Start with a Palworld server.</h2>
+            <p class="muted">
+              Create an isolated Palworld instance, install the runtime, then
+              start your world. Existing servers and their files are never
+              imported automatically.
+            </p>
+            <button id="overview-create" class="primary">
+              + Create a Palworld server
+            </button>
+          </div>
+        </section>
+        <section id="activity" hidden>
+          <p class="eyebrow">ADMINISTRATION</p>
+          <h1>Activity</h1>
+          <p class="muted">
+            Authentication and management requests. Passwords and command bodies
+            are never recorded here.
+          </p>
+          <div id="activity-list" class="card"></div>
+        </section>
+        <section id="detail" hidden>
+          <div class="page-title">
+            <div>
+              <p class="eyebrow">PALWORLD / DEDICATED SERVER</p>
+              <h1 id="server-name"></h1>
+              <p id="server-meta" class="muted"></p>
+            </div>
+            <div class="actions">
+              <button data-action="start" class="primary">▶ Start</button
+              ><button data-action="stop">Stop</button
+              ><button data-action="restart">Restart</button
+              ><button id="more-actions">Install / Update</button>
+            </div>
+          </div>
+          <div id="job-panel" class="card" hidden>
+            <div class="nav-row">
+              <h3 id="job-title">Installation</h3>
+              <button data-action="cancel" class="danger">
+                Cancel installation
+              </button>
+            </div>
+            <pre id="job-log"></pre>
+            <p class="muted small">
+              The operation has a deadline and does not retry automatically.
+              Container logs show download progress.
+            </p>
+          </div>
+          <nav class="tabs" aria-label="Server sections">
+            <button data-tab="health" class="active">Overview</button
+            ><button data-tab="logs">Console &amp; logs</button
+            ><button data-tab="players">Players</button
+            ><button data-tab="settings">Settings</button
+            ><button data-tab="mods">
+              Mods <span class="tag">LIBRARY</span></button
+            ><button data-tab="backups">Backups</button>
+          </nav>
+          <section id="tab-health">
+            <div id="health-cards" class="health-grid"></div>
+            <div class="card">
+              <h2>Readiness, without the guesswork.</h2>
+              <div id="health-checks"></div>
+              <p class="muted small">
+                Unknown means no check has established that condition. Container
+                state alone does not establish game health or remote
+                connectivity.
+              </p>
+            </div>
+          </section>
+          <section id="tab-logs" hidden>
+            <div class="card">
+              <div class="nav-row">
+                <h2>Live console</h2>
+                <span class="tag">REFRESHES EVERY 5S</span>
+              </div>
+              <pre id="logs" class="console" aria-live="off"></pre>
+              <form id="rcon-form" class="row">
+                <label class="grow"
+                  >Admin command<input
+                    id="rcon-command"
+                    placeholder="Info · ShowPlayers · Save · Broadcast …"
+                    maxlength="512"
+                    required /></label
+                ><button type="submit" class="primary">Send</button>
+              </form>
+              <pre id="rcon-output"></pre>
+            </div>
+          </section>
+          <section id="tab-players" hidden>
+            <div class="card">
+              <div class="nav-row">
+                <h2>Connected players</h2>
+                <button id="refresh-players">Refresh</button>
+              </div>
+              <div id="players-list"></div>
+            </div>
+          </section>
+          <section id="tab-settings" hidden>
+            <div class="card">
+              <h2>Make it your world.</h2>
+              <p class="muted">
+                Stop the server before editing. Saved settings apply on its next
+                start.
+              </p>
+              <form id="settings-form" class="form-grid">
+                <label
+                  >Server name<input
+                    name="server_name"
+                    required
+                    maxlength="80" /></label
+                ><label
+                  >Player limit<input
+                    name="players"
+                    type="number"
+                    min="1"
+                    max="32"
+                    required /></label
+                ><label class="full"
+                  >Description<input
+                    name="description"
+                    maxlength="200" /></label
+                ><label
+                  >New admin / RCON password<input
+                    name="admin_password"
+                    type="password"
+                    autocomplete="new-password"
+                    minlength="16"
+                    placeholder="Leave blank to keep existing" /></label
+                ><label
+                  >New join password<input
+                    name="server_password"
+                    type="password"
+                    autocomplete="new-password"
+                    placeholder="Leave blank to keep existing" /></label
+                ><label class="checkbox full"
+                  ><input id="clear-join-password" type="checkbox" /> Remove the
+                  join password</label
+                >
+                <div class="full">
+                  <button class="primary" type="submit">Save settings</button>
+                </div>
+              </form>
+            </div>
+            <div class="card danger-zone">
+              <h3>Remove server registration</h3>
+              <p class="muted">
+                The stopped container is removed. Game files and backups are
+                retained.
+              </p>
+              <button id="remove-server" class="danger">Remove server…</button>
+            </div>
+          </section>
+          <section id="tab-mods" hidden>
+            <div class="page-title">
+              <div>
+                <h2>Your mod library.</h2>
+                <p class="muted">
+                  Your mod library. Versions, dependencies, and a way back.
+                </p>
+              </div>
+              <button id="open-install" class="primary">+ Install a mod</button>
+            </div>
+            <div class="callout">
+              <b>Native Linux compatibility is unverified</b>
+              <p>
+                Official server Workshop support is currently Windows-only.
+                Asset inspection cannot prove a mod works. Packages install
+                disabled; enable only after reviewing the mod author's dedicated
+                Linux instructions. DLL, Lua, UE4SS and script installers are
+                unsupported.
+              </p>
+            </div>
+            <div class="toolbar">
+              <label class="grow"
+                >Search library<input
+                  id="mod-search"
+                  type="search"
+                  placeholder="Search name, author, version…" /></label
+              ><label
+                >Status<select id="mod-filter">
+                  <option value="all">All mods</option>
+                  <option value="enabled">Enabled</option>
+                  <option value="disabled">Disabled</option>
+                </select></label
+              ><label
+                >Sort<select id="mod-sort">
+                  <option value="name">Name</option>
+                  <option value="newest">Newest installed</option>
+                  <option value="author">Author</option>
+                </select></label
+              >
+            </div>
+            <div id="mod-list" class="mod-grid"></div>
+            <details class="card">
+              <summary>Installation history</summary>
+              <pre id="mod-events"></pre>
+            </details>
+          </section>
+          <section id="tab-backups" hidden>
+            <div class="card">
+              <div class="nav-row">
+                <div>
+                  <h2>A way back to your world.</h2>
+                  <p class="muted">
+                    Verified snapshots of Pal/Saved. A running server is stopped
+                    for a consistent backup, then started again after success.
+                  </p>
+                </div>
+                <button id="backup-now" class="primary">Create backup</button>
+              </div>
+              <form id="backup-policy" class="row">
+                <label
+                  >Every (hours; 0 disables)<input
+                    name="interval_hours"
+                    type="number"
+                    min="0"
+                    max="720" /></label
+                ><label
+                  >Keep latest<input
+                    name="retain"
+                    type="number"
+                    min="1"
+                    max="100" /></label
+                ><button type="submit">Save schedule</button>
+              </form>
+              <p id="schedule-status" class="small muted"></p>
+            </div>
+            <div id="backup-list"></div>
+          </section>
+        </section>
+        <footer>
+          GameHub <span>Private infrastructure. Shared adventures.</span>
+        </footer>
+      </main>
     </div>
-    <div id="detail" class="hidden">
-      <header id="detail-head">
-        <div><h2 id="d-name">—</h2><span id="d-meta" class="muted"></span></div>
-        <div class="btnrow">
-          <button data-act="start" class="ok">▶ Start</button>
-          <button data-act="stop" class="warn">⏹ Stop</button>
-          <button data-act="restart">↻ Restart</button>
-          <button data-act="update" title="Pull latest image + recreate (game update)">⬆ Update</button>
-          <button data-act="delete" class="danger">🗑 Delete</button>
+    <dialog id="create-dialog">
+      <form id="create-form">
+        <div class="nav-row">
+          <h2>A new world.</h2>
+          <button
+            type="button"
+            data-close="create-dialog"
+            class="icon-button"
+            aria-label="Close"
+          >
+            ×
+          </button>
         </div>
-      </header>
-      <div class="statcards">
-        <div class="stat"><label>Status</label><b id="s-state">—</b></div>
-        <div class="stat"><label>CPU %</label><b id="s-cpu">—</b></div>
-        <div class="stat"><label>RAM MB</label><b id="s-mem">—</b></div>
-        <div class="stat"><label>Players</label><b id="s-players">—</b></div>
+        <p class="muted">
+          A new, isolated Palworld directory. No existing files are imported.
+        </p>
+        <label
+          >Instance name<input
+            name="name"
+            required
+            pattern="[a-z0-9][a-z0-9_-]{0,39}"
+            placeholder="weekend-world"
+            maxlength="40" /></label
+        ><label
+          >Game port<input
+            name="game_port"
+            type="number"
+            value="8211"
+            min="1024"
+            max="65535"
+            required /></label
+        ><label
+          >Admin / RCON password<input
+            name="admin_password"
+            type="password"
+            autocomplete="new-password"
+            minlength="16"
+            maxlength="128"
+            required
+        /></label>
+        <p class="small muted">
+          Creating a registration does not download or start the server. Choose
+          Install when ready.
+        </p>
+        <button class="primary" type="submit">Create server</button>
+      </form>
+    </dialog>
+    <dialog id="install-dialog">
+      <div class="nav-row">
+        <h2>Add to your library.</h2>
+        <button
+          data-close="install-dialog"
+          class="icon-button"
+          aria-label="Close"
+        >
+          ×
+        </button>
       </div>
-      <div class="chart-legend small"><span class="dot" style="background:#5aa2ff"></span> CPU % <span class="dot" style="background:#3ecf8e;margin-left:12px"></span> RAM (MB ÷ 10, scaled to fit)</div>
-      <canvas id="metric-chart" width="600" height="80"></canvas>
-      <nav class="tabs">
-        <button data-tab="console" class="active">Console</button>
-        <button data-tab="players">Players</button>
-        <button data-tab="config">Config</button>
-        <button data-tab="settings">Settings</button>
-        <button data-tab="env">Env / Ports</button>
-        <button data-tab="mods">Mods</button>
-        <button data-tab="backups">Backups</button>
-      </nav>
-      <section id="tab-console" class="tab">
-        <div id="quick-cmds" class="btnrow"></div>
-        <pre id="logs"></pre>
-        <div class="cmdrow">
-          <input id="cmd-input" placeholder="RCON command, e.g. ShowPlayers / list / Broadcast hi" />
-          <button id="cmd-send" class="primary">Send</button>
-          <button id="logs-refresh">Refresh logs</button>
-          <label class="small live-toggle"><input type="checkbox" id="logs-live" checked /> <span>live</span></label>
+      <p id="install-context" class="muted"></p>
+      <form id="upload-form">
+        <label
+          >Local package (.zip or .pak)<input
+            id="mod-file"
+            type="file"
+            accept=".zip,.pak"
+            required
+        /></label>
+        <p class="small muted">
+          Up to 128 MiB uploaded / 512 MiB extracted. A ZIP can contain paired
+          .utoc/.ucas assets and associated .ini files. Stop the server first.
+        </p>
+        <button type="submit" class="primary">Validate &amp; install</button>
+      </form>
+      <hr />
+      <details>
+        <summary>Install from a trusted HTTPS URL</summary>
+        <form id="url-form">
+          <label
+            >Direct download URL<input
+              name="url"
+              type="url"
+              required
+              placeholder="https://…" /></label
+          ><label
+            >Filename<input
+              name="filename"
+              required
+              placeholder="mod.zip" /></label
+          ><label
+            >Expected SHA-256<input
+              name="sha256"
+              required
+              pattern="[a-fA-F0-9]{64}"
+              maxlength="64"
+          /></label>
+          <p class="small muted">
+            The operator must allow each download and redirect host. Manual
+            upload is available if URL downloads are disabled.
+          </p>
+          <button type="submit">Download &amp; validate</button>
+        </form>
+      </details>
+      <hr />
+      <h3>Nexus Mods</h3>
+      <p class="muted small">
+        Download using your own account, then upload the file here. GameHub does
+        not bypass download permissions or scrape protected pages.
+      </p>
+      <a
+        href="https://www.nexusmods.com/palworld"
+        target="_blank"
+        rel="noopener noreferrer"
+        >Open Palworld on Nexus ↗</a
+      >
+      <p id="install-error" class="error" role="alert"></p>
+    </dialog>
+    <dialog id="restore-dialog">
+      <form id="restore-form">
+        <div class="nav-row">
+          <h2>Restore your world.</h2>
+          <button
+            type="button"
+            data-close="restore-dialog"
+            class="icon-button"
+            aria-label="Close"
+          >
+            ×
+          </button>
         </div>
-        <div id="cmd-out" class="muted small"></div>
-      </section>
-      <section id="tab-players" class="tab hidden">
-        <button id="players-refresh" class="primary">Refresh players</button>
-        <table id="players-table"><thead><tr><th>Name</th><th>UID / detail</th><th>Actions</th></tr></thead><tbody></tbody></table>
-        <pre id="players-raw" class="muted small"></pre>
-      </section>
-      <section id="tab-config" class="tab hidden">
-        <div class="cmdrow"><label class="small" style="white-space:nowrap">File:</label><select id="config-file"></select></div>
-        <p class="muted small" id="config-path"></p>
-        <textarea id="config-editor" rows="22" spellcheck="false"></textarea>
-        <div class="btnrow"><button id="config-load" >Reload</button><button id="config-save" class="primary">Save config</button></div>
-        <p class="muted small">Restart server after changing configs.</p>
-      </section>
-      <section id="tab-settings" class="tab hidden">
-        <p class="muted small" id="settings-desc">Friendly form for this game's settings. Raw file stays under the Config tab.</p>
-        <div id="settings-form"></div>
-        <div class="btnrow"><button id="settings-load">Reload</button><button id="settings-save" class="primary">Save settings</button></div>
-        <p class="muted small" id="settings-note"></p>
-      </section>
-      <section id="tab-env" class="tab hidden">
-        <h3>Public join address (from playit)</h3>
-        <div class="cmdrow"><input id="public-addr" placeholder="e.g. xxx.asia.playit.gg:12345" /><button id="public-save" class="primary">Save</button></div>
-        <p class="muted small">Share link: <a id="share-link" href="#" target="_blank">—</a> <button id="share-copy" class="mini">Copy</button></p>
-        <label class="small live-toggle"><input type="checkbox" id="show-homepage" checked /> <span>Show on homepage</span></label>
-        <p class="muted small">Untick to hide from the public homepage (its share link keeps working).</p>
-        <h3>Custom image build</h3>
-        <div id="build-box">
-          <p class="muted small" id="build-state">No custom Dockerfile stored.</p>
-          <textarea id="build-dockerfile" rows="8" spellcheck="false" placeholder="Paste Dockerfile here…"></textarea>
-          <div class="btnrow"><button id="build-run" class="primary">Build image</button><button id="build-run-start">Build + Start</button></div>
-          <pre id="build-log" class="muted small" style="max-height:180px;overflow:auto"></pre>
-        </div>
-        <h3>Environment</h3>
-        <textarea id="env-editor" rows="12" spellcheck="false"></textarea>
-        <div class="btnrow"><button id="env-save" class="primary">Save env</button></div>
-        <p class="muted small">JSON object. Recreating (Update button) / restart applies most images. RCON password keys: Palworld=ADMIN_PASSWORD, others=RCON_PASSWORD.</p>
-        <h3>Ports</h3>
-        <pre id="ports-view"></pre>
-      </section>
-      <section id="tab-mods" class="tab hidden">
-        <p class="muted small" id="mods-path"></p>
-        <h3>One-click catalog</h3>
-        <div id="mods-catalog"></div>
-        <h3>Install from URL</h3>
-        <div class="cmdrow"><input id="mod-url" placeholder="https://…/mymod.zip" /><button id="mod-install-url" class="primary">Install URL</button></div>
-        <h3>Upload file</h3>
-        <div class="cmdrow"><input id="mod-file" type="file" /><button id="mod-upload">Upload</button></div>
-        <p class="muted small">Zips auto-extract. Restart the server after adding/removing mods.</p>
-        <h3>Installed</h3>
-        <div class="btnrow"><button id="mods-refresh">Refresh</button></div>
-        <table id="mods-table"><thead><tr><th>Name</th><th>Size</th><th></th></tr></thead><tbody></tbody></table>
-      </section>
-      <section id="tab-backups" class="tab hidden">
-        <div class="btnrow"><button id="backup-now" class="primary">Create backup now</button><button id="backup-refresh">Refresh</button></div>
-        <table id="backup-table"><thead><tr><th>File</th><th>Size</th><th>Created</th><th></th></tr></thead><tbody></tbody></table>
-      </section>
-    </div>
-  </main>
-</div>
-
-<div id="modal" class="hidden">
-  <div class="card">
-    <h2>New game server</h2>
-    <label>Template <select id="ns-template"></select></label>
-    <p id="ns-desc" class="muted small"></p>
-    <label>Name (a-z,0-9,-,_) <input id="ns-name" placeholder="palworld-1" /></label>
-    <label>Docker image (blank = template default) <input id="ns-image" placeholder="" /></label>
-    <label>— or paste a Dockerfile (built on your server, tagged for this game) — <textarea id="ns-dockerfile" rows="6" spellcheck="false" placeholder="FROM ubuntu:24.04&#10;RUN apt-get update && apt-get install -y ...&#10;CMD [...]"></textarea></label>
-    <label>Build context .zip (optional — files your Dockerfile COPYs) <input id="ns-context" type="file" accept=".zip" /></label>
-    <label>RCON / Admin password <input id="ns-rcon" placeholder="strong password" /></label>
-    <label>Extra env (JSON, optional) <textarea id="ns-env" rows="4" placeholder='{"SERVER_NAME":"My Server"}'></textarea></label>
-    <div class="btnrow"><button id="ns-cancel">Cancel</button><button id="ns-create">Create</button><button id="ns-create-start" class="primary">Create + Start</button></div>
-    <pre id="ns-buildlog" class="muted small hidden" style="max-height:180px;overflow:auto"></pre>
-    <p id="ns-err" class="error"></p>
-  </div>
-</div>
-
-<script src="/static/app.js?v=12"></script>
-</body>
+        <p class="muted">
+          The server must be stopped. Only this instance's Saved data will be
+          replaced.
+        </p>
+        <div id="restore-summary" class="callout"></div>
+        <label id="restore-label" for="restore-confirmation"
+          >Type the instance name to confirm</label
+        ><input id="restore-confirmation" required autocomplete="off" />
+        <p class="small muted">
+          The previous Saved directory is retained for recovery. The server
+          stays stopped after restore.
+        </p>
+        <button type="submit" class="danger">Restore Saved data</button>
+      </form>
+    </dialog>
+  </body>
 </html>

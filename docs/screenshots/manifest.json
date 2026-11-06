@@ -1,0 +1,114 @@
+[
+  {
+    "name": "01-login",
+    "label": "Sign in",
+    "image": "01-login.png",
+    "width": 1280,
+    "height": 978
+  },
+  {
+    "name": "02-overview",
+    "label": "Workspace overview",
+    "image": "02-overview.png",
+    "width": 1280,
+    "height": 978
+  },
+  {
+    "name": "03-create-server",
+    "label": "Create a server",
+    "image": "03-create-server.png",
+    "width": 1280,
+    "height": 978
+  },
+  {
+    "name": "04-server-health",
+    "label": "Server health",
+    "image": "04-server-health.png",
+    "width": 1280,
+    "height": 978
+  },
+  {
+    "name": "05-console",
+    "label": "Live console & RCON",
+    "image": "05-console.png",
+    "width": 1280,
+    "height": 978
+  },
+  {
+    "name": "06-players",
+    "label": "Connected players",
+    "image": "06-players.png",
+    "width": 1280,
+    "height": 978
+  },
+  {
+    "name": "07-settings",
+    "label": "Server settings",
+    "image": "07-settings.png",
+    "width": 1280,
+    "height": 978
+  },
+  {
+    "name": "08-mod-library",
+    "label": "Mod library \u2022 demo packages",
+    "image": "08-mod-library.png",
+    "width": 1280,
+    "height": 1333
+  },
+  {
+    "name": "09-install-mod",
+    "label": "Upload, URL & Nexus installation",
+    "image": "09-install-mod.png",
+    "width": 1280,
+    "height": 1333
+  },
+  {
+    "name": "09b-install-url",
+    "label": "Trusted URL download form",
+    "image": "09b-install-url.png",
+    "width": 1280,
+    "height": 978
+  },
+  {
+    "name": "10-backups",
+    "label": "Verified backups & scheduling",
+    "image": "10-backups.png",
+    "width": 1280,
+    "height": 1333
+  },
+  {
+    "name": "11-restore-preview",
+    "label": "Restore preview & confirmation",
+    "image": "11-restore-preview.png",
+    "width": 1280,
+    "height": 1333
+  },
+  {
+    "name": "12-activity",
+    "label": "Administrative activity",
+    "image": "12-activity.png",
+    "width": 1280,
+    "height": 978
+  },
+  {
+    "name": "13-mobile-overview",
+    "label": "Mobile \u2022 server overview",
+    "image": "13-mobile-overview.png",
+    "width": 780,
+    "height": 3600
+  },
+  {
+    "name": "14-mobile-mods",
+    "label": "Mobile \u2022 mod library",
+    "image": "14-mobile-mods.png",
+    "width": 780,
+    "height": 5200
+  },
+  {
+    "name": "15-mobile-install",
+    "label": "Mobile \u2022 mod installation",
+    "image": "15-mobile-install.png",
+    "width": 780,
+    "height": 2000
+  }
+]

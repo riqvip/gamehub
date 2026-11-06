@@ -31,3 +31,8 @@ Thumbs.db
 # temp
 /tmp/
 *.log
+
+# Disposable local validation and secrets
+.dev/
+secrets/
+.validation/

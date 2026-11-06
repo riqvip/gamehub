@@ -1,0 +1,92 @@
+name: ${COMPOSE_PROJECT_NAME:-gamehub}
+x-hardening: &hardening
+  init: true
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  restart: "on-failure:3"
+  stop_grace_period: 90s
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev,size=256m
+services:
+  web:
+    <<: *hardening
+    build: ./manager
+    image: gamehub-local:2
+    user: "1000:1000"
+    ports:
+      - "${MANAGER_BIND_IP:-127.0.0.1}:${MANAGER_PORT:-8000}:8000"
+    environment:
+      DATA_DIR: /state
+      CONTROLLER_URL: http://controller:8001
+      CONTROLLER_TOKEN_FILE: /run/secrets/controller_token
+      ADMIN_PASSWORD_HASH_FILE: /run/secrets/admin_password_hash
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,homeserver}
+      ADMIN_ALLOWED_IPS: ${ADMIN_ALLOWED_IPS:-}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+    secrets: [controller_token, admin_password_hash]
+    volumes:
+      - ${GAMEHUB_DATA_ROOT:-/opt/data/gamehub}/database:/state
+    networks: [frontend, control]
+    mem_limit: 512m
+    cpus: 1
+    pids_limit: 128
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz',timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      controller: {condition: service_healthy}
+  controller:
+    <<: *hardening
+    build: ./manager
+    image: gamehub-local:2
+    # Non-root UID, with only the socket's supplementary group. Socket access is still host-root equivalent.
+    user: "1000:1000"
+    group_add: ["${DOCKER_GID:?Set DOCKER_GID to the Docker socket group id}"]
+    command: [uvicorn, app.controller:app, --host, 0.0.0.0, --port, "8001", --no-proxy-headers, --no-access-log, --limit-concurrency, "16"]
+    environment:
+      CONFIG_DIR: /configuration
+      BACKUP_DIR: /backups
+      GAME_ROOT: /games
+      HOST_GAME_ROOT: ${PALWORLD_DATA_ROOT:-/opt/data/palworld/gamehub}
+      CONTROLLER_TOKEN_FILE: /run/secrets/controller_token
+      PALWORLD_IMAGE: ${PALWORLD_IMAGE:?Set the approved Palworld image digest in .env}
+      INSTALL_BACKEND: ${INSTALL_BACKEND:-depotdownloader}
+      INSTALL_TIMEOUT_SECONDS: ${INSTALL_TIMEOUT_SECONDS:-1800}
+      MOD_DOWNLOAD_HOSTS: ${MOD_DOWNLOAD_HOSTS:-}
+      GAME_NETWORK: ${COMPOSE_PROJECT_NAME:-gamehub}-games
+      GAME_BIND_IP: ${GAME_BIND_IP:-127.0.0.1}
+      GAME_MEMORY: ${GAME_MEMORY:-16g}
+      GAME_CPUS: ${GAME_CPUS:-4}
+    secrets: [controller_token]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${GAMEHUB_DATA_ROOT:-/opt/data/gamehub}/configuration:/configuration
+      - ${GAMEHUB_DATA_ROOT:-/opt/data/gamehub}/backups:/backups
+      - ${PALWORLD_DATA_ROOT:-/opt/data/palworld/gamehub}:/games
+    networks: [control, games]
+    mem_limit: 768m
+    cpus: 1
+    pids_limit: 128
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/healthz',timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+networks:
+  frontend: {}
+  control: {internal: true}
+  games:
+    name: ${COMPOSE_PROJECT_NAME:-gamehub}-games
+secrets:
+  controller_token:
+    file: ${GAMEHUB_SECRETS_ROOT:-/opt/stacks/gamehub/secrets}/controller-token
+  admin_password_hash:
+    file: ${GAMEHUB_SECRETS_ROOT:-/opt/stacks/gamehub/secrets}/admin-password-hash

@@ -7,7 +7,9 @@ To add a game:
      for generic Docker games. Only add a subclass here if you need custom
      player parsing or config handling.
 """
+
 from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -49,6 +51,7 @@ class GameTemplate:
 @dataclass
 class ServerInstance:
     """A deployed game server (persisted to instances.json)."""
+
     id: str  # docker container name, e.g. gamehub-palworld-1
     name: str
     game: str  # template id
@@ -65,17 +68,29 @@ class ServerInstance:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "id": self.id, "name": self.name, "game": self.game,
-            "image": self.image, "ports": self.ports, "env": self.env,
-            "extra_args": self.extra_args, "created_at": self.created_at,
-            "public_address": self.public_address, "hidden": self.hidden,
+            "id": self.id,
+            "name": self.name,
+            "game": self.game,
+            "image": self.image,
+            "ports": self.ports,
+            "env": self.env,
+            "extra_args": self.extra_args,
+            "created_at": self.created_at,
+            "public_address": self.public_address,
+            "hidden": self.hidden,
         }
 
     @staticmethod
     def from_dict(d: Dict[str, Any]) -> "ServerInstance":
         return ServerInstance(
-            id=d["id"], name=d.get("name", d["id"]), game=d["game"],
-            image=d["image"], ports=d.get("ports", []), env=d.get("env", {}),
-            extra_args=d.get("extra_args", ""), created_at=d.get("created_at", ""),
-            public_address=d.get("public_address", ""), hidden=d.get("hidden", False),
+            id=d["id"],
+            name=d.get("name", d["id"]),
+            game=d["game"],
+            image=d["image"],
+            ports=d.get("ports", []),
+            env=d.get("env", {}),
+            extra_args=d.get("extra_args", ""),
+            created_at=d.get("created_at", ""),
+            public_address=d.get("public_address", ""),
+            hidden=d.get("hidden", False),
         )

@@ -1,0 +1,5 @@
+fastapi>=0.121,<1
+uvicorn>=0.38,<1
+docker==7.1.0
+argon2-cffi>=25.1,<26
+httpx>=0.28,<1

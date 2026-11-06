@@ -1,0 +1,112 @@
+{
+  "date": "2026-11-05 America/Los_Angeles",
+  "scanner": "aquasec/trivy@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb",
+  "note": "Package findings may repeat a CVE across packages. No ignore-unfixed filtering. Runtime reachability is not established by these counts.",
+  "artifacts": {
+    "gamehub": {
+      "scanner_reported_package_findings": {
+        "LOW": 62,
+        "HIGH": 46,
+        "MEDIUM": 72,
+        "UNKNOWN": 6
+      },
+      "with_reported_fixed_version": {},
+      "critical_findings": []
+    },
+    "palworld": {
+      "scanner_reported_package_findings": {
+        "HIGH": 215,
+        "LOW": 318,
+        "MEDIUM": 442,
+        "CRITICAL": 11,
+        "UNKNOWN": 14
+      },
+      "with_reported_fixed_version": {
+        "HIGH": 116,
+        "MEDIUM": 177,
+        "LOW": 90,
+        "CRITICAL": 10,
+        "UNKNOWN": 2
+      },
+      "critical_findings": [
+        {
+          "VulnerabilityID": "CVE-2026-111497",
+          "PkgName": "libbrotli1",
+          "InstalledVersion": "1.1.0-2+b7",
+          "FixedVersion": "1.1.0-2+deb13u1",
+          "Title": "brotli: Out-of-Bounds Write in Google Brotli Decoder"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-33845",
+          "PkgName": "libgnutls30t64",
+          "InstalledVersion": "3.8.9-3+deb13u2",
+          "FixedVersion": "3.8.9-3+deb13u4",
+          "Title": "gnutls: GnuTLS: Denial of Service via DTLS zero-length fragment"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-42010",
+          "PkgName": "libgnutls30t64",
+          "InstalledVersion": "3.8.9-3+deb13u2",
+          "FixedVersion": "3.8.9-3+deb13u4",
+          "Title": "gnutls: gnutls: Authentication Bypass via NUL Character in Username"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-31789",
+          "PkgName": "libssl3t64",
+          "InstalledVersion": "3.5.4-1~deb13u2",
+          "FixedVersion": "3.5.5-1~deb13u2",
+          "Title": "openssl: OpenSSL: Heap buffer overflow on 32-bit systems from large X.509 certificate processing"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-6653",
+          "PkgName": "libxml2",
+          "InstalledVersion": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+          "FixedVersion": "",
+          "Title": "libxml2: mingw-libxml2: libxml2: Denial of Service via crafted XML input due to use-after-free"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-31789",
+          "PkgName": "openssl",
+          "InstalledVersion": "3.5.4-1~deb13u2",
+          "FixedVersion": "3.5.5-1~deb13u2",
+          "Title": "openssl: OpenSSL: Heap buffer overflow on 32-bit systems from large X.509 certificate processing"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-31789",
+          "PkgName": "openssl-provider-legacy",
+          "InstalledVersion": "3.5.4-1~deb13u2",
+          "FixedVersion": "3.5.5-1~deb13u2",
+          "Title": "openssl: OpenSSL: Heap buffer overflow on 32-bit systems from large X.509 certificate processing"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-13221",
+          "PkgName": "perl-base",
+          "InstalledVersion": "5.40.1-6",
+          "FixedVersion": "5.40.1-6+deb13u1",
+          "Title": "perl: Perl: Incorrect regular expression processing via large regular expressions"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-42496",
+          "PkgName": "perl-base",
+          "InstalledVersion": "5.40.1-6",
+          "FixedVersion": "5.40.1-6+deb13u1",
+          "Title": "perl-archive-tar: perl-archive-tar: Path traversal via crafted symlinks allows arbitrary file access"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-8376",
+          "PkgName": "perl-base",
+          "InstalledVersion": "5.40.1-6",
+          "FixedVersion": "5.40.1-6+deb13u1",
+          "Title": "perl: Perl: Heap buffer overflow when compiling regular expressions on 32-bit builds"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-111497",
+          "PkgName": "brotli",
+          "InstalledVersion": "1.2.0",
+          "FixedVersion": "1.2.1",
+          "Title": "brotli: Out-of-Bounds Write in Google Brotli Decoder"
+        }
+      ]
+    }
+  }
+}

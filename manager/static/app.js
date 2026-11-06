@@ -1,601 +1,630 @@
-/* GameHub frontend - vanilla JS SPA */
+"use strict";
 const $ = (id) => document.getElementById(id);
-const api = {
-  token: localStorage.getItem("gh_token") || "",
-  async req(path, opts = {}) {
-    const r = await fetch(path, {
-      ...opts,
-      headers: { "Content-Type": "application/json", Authorization: "Bearer " + this.token, ...(opts.headers || {}) },
-    });
-    if (r.status === 401) { this.logout(); throw new Error("unauthorized"); }
-    const t = await r.text();
-    // Cloudflare challenge / WAF block returns HTML instead of JSON - surface friendly hint
-    if (t.trimStart().startsWith("<!DOCTYPE") || t.trimStart().startsWith("<html")) {
-      throw new Error(`Blocked by Cloudflare (HTTP ${r.status}). Fix: Cloudflare dashboard → turn OFF Bot Fight Mode, add WAF Skip for /api/*, set Cache Rule Bypass for /api/*, keep WebSockets ON. Then retry.`);
-    }
-    let j; try { j = JSON.parse(t); } catch { j = { raw: t }; }
-    if (!r.ok) throw new Error(typeof j.detail === "string" ? j.detail.slice(0, 300) : t.slice(0, 300));
-    return j;
-  },
-  logout() { this.token = ""; localStorage.removeItem("gh_token"); location.reload(); },
+let csrf = "",
+  selected = "",
+  tab = "health",
+  servers = [],
+  modData = [],
+  updateId = "",
+  busy = false;
+const text = (tag, content, cls) => {
+  const e = document.createElement(tag);
+  e.textContent = content;
+  if (cls) e.className = cls;
+  return e;
 };
-
-let servers = [], templates = [], current = null, ws = null, hist = { cpu: [], mem: [] };
-
-// login (button click or Enter key)
-async function doLogin() {
-  $("login-err").textContent = "";
-  try {
-    const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: $("login-user").value, password: $("login-pass").value }) });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.detail || "login failed");
-    api.token = j.access_token; localStorage.setItem("gh_token", api.token);
-    boot();
-  } catch (e) { $("login-err").textContent = String(e.message || e); }
+function button(label, action, cls) {
+  const b = text("button", label, cls);
+  b.type = "button";
+  b.onclick = () => run(b, action);
+  return b;
 }
-$("login-btn").onclick = doLogin;
-[$("login-user"), $("login-pass")].forEach(el => el?.addEventListener("keydown", e => {
-  if (e.key === "Enter") doLogin();
-}));
-$("logout").onclick = () => api.logout();
-
+function notify(message, error = false) {
+  $("notice").textContent = message;
+  $("notice").className = error ? "error" : "";
+  $("notice").hidden = false;
+  clearTimeout(notify.timer);
+  notify.timer = setTimeout(
+    () => ($("notice").hidden = true),
+    error ? 12000 : 6000,
+  );
+}
+async function run(b, action) {
+  if (busy) return;
+  busy = true;
+  b.disabled = true;
+  try {
+    await action();
+  } catch (e) {
+    notify(e.message, true);
+  } finally {
+    b.disabled = false;
+    busy = false;
+  }
+}
+async function api(path, options = {}) {
+  const headers = { "X-CSRF-Token": csrf, ...options.headers };
+  if (options.body && !(options.body instanceof File))
+    headers["Content-Type"] = "application/json";
+  const r = await fetch("/api/" + path, {
+    credentials: "same-origin",
+    ...options,
+    headers,
+  });
+  let data;
+  try {
+    data = await r.json();
+  } catch {
+    throw new Error("The service returned an unreadable response.");
+  }
+  if (!r.ok) {
+    if (r.status === 401 && path !== "login") showLogin();
+    throw new Error(
+      typeof data.detail === "string"
+        ? data.detail
+        : "Check the form values and try again.",
+    );
+  }
+  return data;
+}
+const post = (path, value) =>
+  api(path, {
+    method: "POST",
+    ...(value === undefined ? {} : { body: JSON.stringify(value) }),
+  });
+const base = () => "servers/" + selected;
+function showLogin() {
+  csrf = "";
+  $("app").hidden = true;
+  $("login-view").hidden = false;
+}
 async function boot() {
-  if (!api.token) return;
-  $("login-view").classList.add("hidden"); $("app").classList.remove("hidden");
-  await Promise.all([loadTemplates(), loadServers(), loadSystem()]);
-  setInterval(loadSystem, 15000);
-  setInterval(() => { if (current) refreshStats(); }, 5000);
-}
-
-async function loadTemplates() {
-  templates = await api.req("/api/templates");
-  $("template-box").innerHTML = templates.map(t => `• <b>${t.name}</b> <span class="muted">${t.id}</span>`).join("<br>");
-  $("ns-template").innerHTML = templates.map(t => `<option value="${t.id}">${t.name}</option>`).join("");
-  updateNsDesc();
-}
-let nsSuggested = "";
-function updateNsDesc(fillName) {
-  const t = templates.find(x => x.id === $("ns-template").value);
-  if (!t) return;
-  $("ns-desc").textContent = t.description + " | image: " + (t.image || "(you supply)");
-  $("ns-image").placeholder = t.image || "e.g. nginx:latest";
-  // preset name suggestion from template (e.g. palworld-1); never clobber a custom name
-  if (fillName && ($("ns-name").value.trim() === "" || $("ns-name").value.trim() === nsSuggested)) {
-    nsSuggested = `${t.id}-1`;
-    $("ns-name").value = nsSuggested;
-  }
-  $("ns-name").placeholder = `${t.id}-1`;
-}
-$("ns-template").onchange = () => updateNsDesc(true);
-
-async function loadServers() {
-  servers = await api.req("/api/servers");
-  const box = $("server-list"); box.innerHTML = "";
-  servers.forEach(s => {
-    const b = document.createElement("button");
-    b.className = "srv" + (current === s.id ? " active" : "");
-    b.innerHTML = `<b>${s.name}${s.hidden ? " 🚫" : ""}</b><span class="muted small">${s.game_name}${s.hidden ? " · hidden" : ""}</span><br><span class="st ${s.state}">${s.state}</span>`;
-    b.onclick = () => selectServer(s.id);
-    box.appendChild(b);
-  });
-  if (current) { const s = servers.find(x => x.id === current); if (s) paintHead(s); }
-}
-
-async function loadSystem() {
-  try {
-    const s = await api.req("/api/system");
-    $("system-box").innerHTML = `CPU ${s.cpu_percent}%<br>RAM ${s.mem_used_mb}/${s.mem_total_mb} MB (${s.mem_percent}%)`;
-  } catch {}
-}
-
-function paintHead(s) {
-  $("empty-state").classList.add("hidden"); $("detail").classList.remove("hidden");
-  $("d-name").textContent = `${s.name}`;
-  $("d-meta").textContent = ` ${s.game_name} · ${s.image} · ${s.state}`;
-  updateActionButtons(s.state);
-}
-
-// State-aware action buttons: running -> can't Start/Delete (must Stop first).
-// Stopped/exited -> can't Stop (must Start first). Delete requires stopped.
-function updateActionButtons(state) {
-  const running = state === "running";
-  const btns = {};
-  document.querySelectorAll("#detail-head [data-act]").forEach(b => btns[b.dataset.act] = b);
-  if (btns.start) { btns.start.disabled = running; btns.start.title = running ? "Server is already running" : "Start server"; }
-  if (btns.stop) { btns.stop.disabled = !running; btns.stop.title = running ? "Stop server" : "Server is not running"; }
-  if (btns.restart) { btns.restart.disabled = !running; btns.restart.title = running ? "Restart server" : "Start server instead (not running)"; }
-  if (btns.update) { btns.update.disabled = false; btns.update.title = "Pull latest image + recreate (game update)"; }
-  if (btns.delete) { btns.delete.disabled = running; btns.delete.title = running ? "Stop server before deleting" : "Delete server container"; }
-}
-
-async function selectServer(id) {
-  current = id;
-  lastState = "";
+  $("app").hidden = false;
+  $("login-view").hidden = true;
   await loadServers();
-  closeWs();
-  stopLogPoll();
-  hist = { cpu: [], mem: [] };
-  // always open on Console tab with live logs on
-  document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("active", x.dataset.tab === "console"));
-  document.querySelectorAll(".tab").forEach(t => t.classList.add("hidden"));
-  $("tab-console").classList.remove("hidden");
-  $("logs-live").checked = true;
-  await Promise.all([refreshStats(), loadLogs(), loadPlayers(), loadConfigList().then(loadConfig), loadEnv(), loadBuildBox(), loadMods(), loadBackups(), loadSettings(), loadQuickCmds()]);
-  openWs();
-  startLogPoll();
 }
-
-let lastState = "";
-async function reliveLogs(reason) {
-  if (!current) return;
-  if (reason) $("logs").textContent += `\n--- ${reason} ---\n`;
-  try { await loadLogs(); } catch {}
-  closeWs(); openWs(); stopLogPoll(); startLogPoll();
-}
-
-document.querySelectorAll("#detail-head [data-act]").forEach(b => b.onclick = async () => {
-  if (!current) return;
-  const act = b.dataset.act;
-  if (act === "delete" && !confirm("Delete server container? (volumes kept unless you remove them manually)")) return;
-  try {
-    if (act === "delete") {
-      await api.req(`/api/servers/${current}`, { method: "DELETE" });
-      current = null; lastState = "";
-      closeWs(); stopLogPoll();
-      $("detail").classList.add("hidden"); $("empty-state").classList.remove("hidden");
-      await loadServers();
-    } else if (act === "update") {
-      const btn = document.querySelector('#detail-head [data-act="update"]');
-      if (btn) { btn.disabled = true; btn.textContent = "⏳ Updating…"; }
-      $("cmd-out").textContent = "Update started — pulling image (minutes)…";
-      try {
-        await api.req(`/api/servers/${current}/update`, { method: "POST" });
-      } catch (e) {
-        if (!String(e.message).includes("already in progress")) throw e;
-      }
-      // poll job until done/error
-      for (let i = 0; i < 120; i++) {
-        await new Promise(r => setTimeout(r, 3000));
-        const st = await api.req(`/api/servers/${current}/update/status`);
-        const last = (st.log || []).slice(-3).join(" | ");
-        $("cmd-out").textContent = `Updating… ${last || ""}`;
-        if (st.state === "done" || st.state === "error") {
-          $("cmd-out").textContent = st.state === "done"
-            ? "✅ Update done: " + (st.log || []).slice(-2).join(" | ")
-            : "❌ Update failed: " + (st.error || "unknown");
-          break;
-        }
-      }
-      if (btn) { btn.disabled = false; btn.textContent = "⬆ Update"; }
-      await loadServers(); if (current) await refreshStats();
-      await reliveLogs("update finished — fresh logs below");
-    } else {
-      await api.req(`/api/servers/${current}/${act}`, { method: "POST" });
-      await loadServers(); if (current) await refreshStats();
-      // container recreated/restarted -> old WS stream is dead, resubscribe + show event
-      await reliveLogs(act === "start" ? "starting server…" : act === "stop" ? "stopping server…" : "restarting server…");
-    }
-  } catch (e) { alert(e.message); }
-});
-
-async function refreshStats() {
-  if (!current) return;
-  try {
-    const s = await api.req(`/api/servers/${current}/stats`);
-    $("s-state").textContent = s.state || "?";
-    $("s-cpu").textContent = (s.cpu_percent ?? "?") + " %";
-    $("s-mem").textContent = (s.mem_mb ?? "?") + " MB";
-    $("s-players").textContent = s.players_online ?? "?";
-    updateActionButtons(s.state);
-    const srv = servers.find(x => x.id === current);
-    if (srv && srv.state !== s.state) { srv.state = s.state; paintHead({ ...srv, state: s.state }); }
-    // state flipped (e.g. running -> exited after Stop pressed elsewhere) -> resubscribe logs
-    if (lastState && lastState !== s.state) { reliveLogs(`state: ${lastState} → ${s.state}`); }
-    lastState = s.state;
-    hist.cpu.push(s.cpu_percent || 0); hist.mem.push(s.mem_mb || 0);
-    if (hist.cpu.length > 60) { hist.cpu.shift(); hist.mem.shift(); }
-    drawChart();
-  } catch {}
-}
-
-function drawChart() {
-  const c = $("metric-chart"), ctx = c.getContext("2d");
-  ctx.clearRect(0, 0, c.width, c.height);
-  const series = [hist.cpu, hist.mem.map(v => v / 10)];
-  const colors = ["#5aa2ff", "#3ecf8e"];
-  series.forEach((arr, si) => {
-    ctx.strokeStyle = colors[si]; ctx.beginPath();
-    const max = Math.max(10, ...arr);
-    arr.forEach((v, i) => {
-      const x = (i / Math.max(1, 59)) * c.width, y = c.height - (v / max) * (c.height - 6) - 3;
-      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
-    });
-    ctx.stroke();
-  });
-}
-
-// tabs
-document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
-  document.querySelectorAll(".tabs button").forEach(x => x.classList.remove("active"));
-  b.classList.add("active");
-  document.querySelectorAll(".tab").forEach(t => t.classList.add("hidden"));
-  $("tab-" + b.dataset.tab).classList.remove("hidden");
-});
-
-// console
-async function loadLogs() {
-  if (!current) return;
-  const j = await api.req(`/api/servers/${current}/logs?tail=300`);
-  $("logs").textContent = j.logs || "";
-  $("logs").scrollTop = 1e9;
-}
-$("logs-refresh").onclick = loadLogs;
-$("cmd-send").onclick = async () => {
-  const cmd = $("cmd-input").value.trim(); if (!cmd || !current) return;
-  $("cmd-out").textContent = "…";
-  try {
-    const j = await api.req(`/api/servers/${current}/rcon`, { method: "POST", body: JSON.stringify({ command: cmd }) });
-    $("cmd-out").textContent = j.output || "(empty response)";
-    $("cmd-input").value = "";
-  } catch (e) { $("cmd-out").textContent = "ERROR: " + e.message; }
-};
-async function loadQuickCmds() {
-  const t = templates.find(x => x.id === (servers.find(s => s.id === current) || {}).game);
-  $("quick-cmds").innerHTML = "";
-  (t?.helpful_commands || []).forEach(c => {
-    const b = document.createElement("button"); b.textContent = c; b.className = "mini";
-    b.onclick = () => { $("cmd-input").value = c.replace(/<.*>/, "").trim(); };
-    $("quick-cmds").appendChild(b);
-  });
-}
-let logPollTimer = null, wsRetryTimer = null;
-function openWs() {
-  closeWs();
-  if (!$("logs-live").checked || !current) return;
-  try {
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    ws = new WebSocket(`${proto}://${location.host}/api/servers/${current}/logs/ws?token=${api.token}`);
-    ws.onmessage = (e) => {
-      // auto-scroll only if user is already near bottom
-      const nearBottom = $("logs").scrollTop + $("logs").clientHeight > $("logs").scrollHeight - 80;
-      $("logs").textContent += e.data;
-      // cap buffer so long sessions don't freeze the tab
-      if ($("logs").textContent.length > 200000) $("logs").textContent = $("logs").textContent.slice(-150000);
-      if (nearBottom) $("logs").scrollTop = 1e9;
-    };
-    ws.onclose = () => {
-      // container restarted or proxy killed WS -> retry in 3s while live is on
-      if (!$("logs-live").checked || !current) return;
-      clearTimeout(wsRetryTimer);
-      wsRetryTimer = setTimeout(() => { if (current && $("logs-live").checked) openWs(); }, 3000);
-    };
-  } catch {}
-}
-function closeWs() { try { ws?.close(); } catch {} ws = null; clearTimeout(wsRetryTimer); }
-// Live = WS primary + 5s REST replace-fallback (covers restarts / WS drops).
-function startLogPoll() {
-  stopLogPoll();
-  logPollTimer = setInterval(async () => {
-    if (!current || !$("logs-live").checked) return;
-    if (ws && ws.readyState === WebSocket.OPEN) return; // WS already live
+$("login-form").onsubmit = (e) => {
+  e.preventDefault();
+  run(e.submitter, async () => {
+    $("login-error").textContent = "";
     try {
-      const j = await api.req(`/api/servers/${current}/logs?tail=150`);
-      if (j.logs !== undefined) { $("logs").textContent = (j.logs || "").slice(-60000); $("logs").scrollTop = 1e9; }
-    } catch {}
-  }, 5000);
-}
-function stopLogPoll() { if (logPollTimer) clearInterval(logPollTimer); logPollTimer = null; }
-$("logs-live").onchange = () => { closeWs(); if ($("logs-live").checked) { openWs(); startLogPoll(); } else stopLogPoll(); };
-
-// players
-async function loadPlayers() {
-  if (!current) return;
-  try {
-    const j = await api.req(`/api/servers/${current}/players`);
-    const tb = document.querySelector("#players-table tbody"); tb.innerHTML = "";
-    (j.players || []).forEach(p => {
-      const tr = document.createElement("tr");
-      const detail = p.steam_id || p.uid || "";
-      tr.innerHTML = `<td>${p.name}</td><td class="muted">${detail}</td><td></td>`;
-      const td = tr.lastChild;
-      [["Kick", "mini"], ["Ban", "mini"]].forEach(([label]) => {
-        const b = document.createElement("button"); b.textContent = label; b.className = "mini";
-        b.onclick = async () => {
-          const game = (servers.find(s => s.id === current) || {}).game;
-          let cmd = `${label === "Kick" ? "kick" : "ban"} ${p.name}`;
-          if (game === "palworld") cmd = `${label === "Kick" ? "KickPlayer" : "BanPlayer"} ${p.steam_id || p.uid || p.name}`;
-          if (!confirm(`Run: ${cmd}?`)) return;
-          await api.req(`/api/servers/${current}/rcon`, { method: "POST", body: JSON.stringify({ command: cmd }) });
-          loadPlayers();
-        };
-        td.appendChild(b);
+      const j = await post("login", {
+        username: $("login-user").value,
+        password: $("login-pass").value,
       });
-      tb.appendChild(tr);
-    });
-    $("players-raw").textContent = j.raw || "";
-  } catch (e) { $("players-raw").textContent = "ERROR: " + e.message; }
-}
-$("players-refresh").onclick = loadPlayers;
-
-// config (per-template file list; some games like Valheim have none)
-let configFiles = [];
-async function loadConfigList() {
-  configFiles = [];
-  try {
-    const d = await api.req(`/api/servers/${current}`);
-    configFiles = d.config_files || [];
-  } catch {}
-  const sel = $("config-file"); sel.innerHTML = "";
-  configFiles.forEach(f => {
-    const o = document.createElement("option");
-    o.value = f.index; o.textContent = f.path;
-    sel.appendChild(o);
+      csrf = j.csrf;
+      $("login-pass").value = "";
+      await boot();
+    } catch (err) {
+      $("login-error").textContent = err.message;
+    }
   });
-  if (!configFiles.length) {
-    $("config-editor").value = "";
-    $("config-path").textContent = "No editable config files for this game template.";
+};
+$("logout").onclick = () =>
+  run($("logout"), async () => {
+    await post("logout");
+    showLogin();
+  });
+function showPage(page) {
+  for (const p of ["overview", "activity", "detail"]) $(p).hidden = p !== page;
+}
+$("overview-link").onclick = () => {
+  selected = "";
+  showPage("overview");
+  $("breadcrumb").textContent = "Workspace / Overview";
+  loadServers().catch((e) => notify(e.message, true));
+};
+$("activity-link").onclick = () =>
+  run($("activity-link"), async () => {
+    selected = "";
+    showPage("activity");
+    $("breadcrumb").textContent = "Workspace / Activity";
+    const rows = await api("activity");
+    $("activity-list").replaceChildren(
+      ...rows.map((r) =>
+        text(
+          "p",
+          `${new Date(r.at * 1000).toLocaleString()} · ${r.actor} · ${r.action} ${r.target} · ${r.outcome}`,
+          "small",
+        ),
+      ),
+    );
+  });
+async function loadServers() {
+  servers = await api("servers");
+  $("server-list").replaceChildren();
+  $("overview-cards").replaceChildren();
+  for (const s of servers) {
+    const b = button(
+      "◉  " + s.name,
+      () => selectServer(s.id),
+      "nav-link" + (selected === s.id ? " active" : ""),
+    );
+    $("server-list").append(b);
+    const card = text("div", "", "card");
+    card.append(
+      text("p", "PALWORLD", "eyebrow"),
+      text("h2", s.name),
+      text("p", s.state, "muted"),
+      button("Manage server →", () => selectServer(s.id)),
+    );
+    $("overview-cards").append(card);
+  }
+  if (!servers.length)
+    $("overview-cards").append(
+      text(
+        "div",
+        "Your first world is a few clicks away. Create a server to get started.",
+        "empty",
+      ),
+    );
+}
+async function selectServer(id) {
+  selected = id;
+  tab = "health";
+  showPage("detail");
+  await loadServers();
+  await refreshDetail();
+  await openTab("health");
+}
+async function refreshDetail() {
+  const s = await api(base());
+  $("server-name").textContent = s.name;
+  $("server-meta").textContent =
+    `${s.state} · Game UDP ${s.game_port} · Native Linux`;
+  $("breadcrumb").textContent = "Servers / " + s.name;
+  const j = s.job || {};
+  $("job-panel").hidden = j.state === "idle" || !j.state;
+  $("job-title").textContent = `${j.kind || "Installation"} · ${j.state}`;
+  $("job-log").textContent =
+    (j.log || []).join("\n") + (j.error ? "\nERROR: " + j.error : "");
+  document.querySelector('[data-action="cancel"]').hidden =
+    j.state !== "running";
+  for (const b of document.querySelectorAll(".page-title [data-action]"))
+    b.disabled =
+      j.state === "running" ||
+      (b.dataset.action === "start" &&
+        (!s.installed || s.state === "running")) ||
+      (b.dataset.action !== "start" && s.state !== "running");
+  $("more-actions").textContent = s.installed
+    ? "Update runtime"
+    : "Install runtime";
+  $("more-actions").disabled = j.state === "running";
+}
+for (const b of document.querySelectorAll("[data-action]"))
+  b.onclick = () =>
+    run(b, async () => {
+      const action = b.dataset.action;
+      if (
+        ["stop", "restart", "cancel"].includes(action) &&
+        !confirm(`${action} this server operation?`)
+      )
+        return;
+      await post(base() + "/actions", { action });
+      notify("Requested: " + action);
+      await refreshDetail();
+    });
+$("more-actions").onclick = () =>
+  run($("more-actions"), async () => {
+    const s = await api(base());
+    const action = s.installed ? "update" : "install";
+    if (
+      !confirm(
+        `${action} Palworld? Downloads can take several minutes. An update first stops the server and creates a verified Saved backup.`,
+      )
+    )
+      return;
+    await post(base() + "/actions", { action });
+    await refreshDetail();
+  });
+for (const b of document.querySelectorAll("[data-tab]"))
+  b.onclick = () =>
+    openTab(b.dataset.tab).catch((e) => notify(e.message, true));
+async function openTab(name) {
+  tab = name;
+  for (const b of document.querySelectorAll("[data-tab]")) {
+    b.classList.toggle("active", b.dataset.tab === name);
+    $("tab-" + b.dataset.tab).hidden = b.dataset.tab !== name;
+  }
+  await refreshTab();
+}
+async function refreshTab() {
+  if (!selected) return;
+  return {
+    health: loadHealth,
+    logs: loadLogs,
+    players: loadPlayers,
+    settings: loadSettings,
+    mods: loadMods,
+    backups: loadBackups,
+  }[tab]();
+}
+async function loadHealth() {
+  const h = await api(base() + "/health");
+  $("health-cards").replaceChildren();
+  for (const [label, value] of [
+    ["CONTAINER", h.state],
+    ["CPU", h.cpu_percent === null ? "—" : h.cpu_percent + "%"],
+    ["MEMORY", h.mem_mb === null ? "—" : Math.round(h.mem_mb) + " MiB"],
+  ]) {
+    const c = text("div", "", "card");
+    c.append(text("p", label, "eyebrow"), text("div", value, "metric"));
+    $("health-cards").append(c);
+  }
+  $("health-checks").replaceChildren();
+  for (const [key, label] of [
+    ["container_running", "Container running"],
+    ["game_process_running", "Game process running"],
+    ["game_initialized", "Game initialized (authenticated RCON)"],
+    ["game_port_bound", "Game port bound"],
+    ["external_connectivity_verified", "External connectivity verified"],
+  ]) {
+    const row = text("div", "", "health-line");
+    row.append(
+      text("span", label),
+      text(
+        "span",
+        h[key] === null ? "Unknown" : h[key] ? "Confirmed" : "Not confirmed",
+        h[key] === true ? "yes" : "unknown",
+      ),
+    );
+    $("health-checks").append(row);
   }
 }
-async function loadConfig() {
-  if (!current) return;
-  if (!configFiles.length) await loadConfigList();
-  if (!configFiles.length) return;
-  const idx = $("config-file").value || 0;
-  try {
-    const j = await api.req(`/api/servers/${current}/config?file_idx=${idx}`);
-    $("config-editor").value = j.content || "";
-    const f = configFiles.find(x => String(x.index) === String(idx));
-    $("config-path").textContent = "Path: " + j.path + (j.exists ? "" : " (not created yet — defaults shown)") + (f?.description ? " — " + f.description : "");
-  } catch (e) { $("config-editor").value = "ERROR: " + e.message; }
+async function loadLogs() {
+  const j = await api(base() + "/logs");
+  const e = $("logs");
+  const bottom = e.scrollHeight - e.scrollTop - e.clientHeight < 60;
+  e.textContent = j.logs;
+  if (bottom) e.scrollTop = e.scrollHeight;
 }
-$("config-file").onchange = loadConfig;
-$("config-load").onclick = loadConfig;
-$("config-save").onclick = async () => {
-  if (!configFiles.length) return alert("No config file for this game.");
-  const idx = $("config-file").value || 0;
-  await api.req(`/api/servers/${current}/config?file_idx=${idx}`, { method: "PUT", body: JSON.stringify({ content: $("config-editor").value }) });
-  alert("Saved. Restart server to apply.");
+$("rcon-form").onsubmit = (e) => {
+  e.preventDefault();
+  run(e.submitter, async () => {
+    const j = await post(base() + "/rcon", {
+      command: $("rcon-command").value,
+    });
+    $("rcon-output").textContent = j.output;
+  });
 };
-
-// settings form (per-game friendly form alongside raw Config tab)
-const SETTINGS_BLURBS = {
-  palworld: "Parsed OptionSettings from PalWorldSettings.ini — same file as the Config tab, friendlier.",
-  properties: "server.properties as a form — same file as the Config tab, friendlier.",
-  ini: "Server .ini as a form — same file as the Config tab, friendlier.",
-  env: "These live in the server environment (mirrored in the Env tab). Restart to apply.",
-};
+async function loadPlayers() {
+  const j = await api(base() + "/players");
+  $("players-list").replaceChildren(
+    ...j.players.map((p) => {
+      const row = text("div", "", "player-row");
+      row.append(text("b", p.name), text("span", p.steam_id, "muted"));
+      return row;
+    }),
+  );
+  if (!j.players.length)
+    $("players-list").append(text("p", "No connected players.", "muted"));
+}
+$("refresh-players").onclick = () => run($("refresh-players"), loadPlayers);
 async function loadSettings() {
-  if (!current) return;
-  const f = $("settings-form"); f.innerHTML = "<p class='muted'>Loading…</p>";
-  try {
-    const j = await api.req(`/api/servers/${current}/settings`);
-    $("settings-desc").textContent = `${j.game_name}: ${SETTINGS_BLURBS[j.source] || ""}`.trim()
-      + (j.path ? ` (File: ${j.path}${j.exists ? "" : " — not created yet, defaults shown)"}` : "");
-    $("settings-note").textContent = j.note || "Restart server to apply.";
-    f.innerHTML = "";
-    if (!j.fields.length) { f.innerHTML = "<p class='muted'>No form settings for this game — use Config / Env tabs.</p>"; return; }
-    j.fields.forEach(field => {
-      const l = document.createElement("label");
-      l.textContent = field.label + (field.description ? ` — ${field.description}` : "");
-      const val = (j.values[field.key] ?? field.default ?? "");
-      let input;
-      if (field.type === "boolean") {
-        input = document.createElement("select");
-        ["true", "false"].forEach(o => {
-          const op = document.createElement("option");
-          op.value = o; op.textContent = o;
-          if (String(val).toLowerCase() === o) op.selected = true;
-          input.appendChild(op);
-        });
-      } else if (field.type === "select" && field.options?.length) {
-        input = document.createElement("select");
-        field.options.forEach(o => {
-          const op = document.createElement("option");
-          op.value = o; op.textContent = o;
-          if (String(val) === String(o)) op.selected = true;
-          input.appendChild(op);
-        });
-        if (!field.options.map(String).includes(String(val))) {
-          const op = document.createElement("option");
-          op.value = val; op.textContent = `${val} (current)`; op.selected = true;
-          input.appendChild(op);
-        }
-      } else {
-        input = document.createElement("input");
-        input.value = val ?? "";
-        if (field.type === "password") input.type = "password";
-        else if (field.type === "integer" || field.type === "number") input.type = "number";
-      }
-      input.dataset.key = field.key;
-      l.appendChild(input); f.appendChild(l);
+  const j = await api(base() + "/settings");
+  for (const [k, v] of Object.entries(j))
+    if ($("settings-form").elements[k])
+      $("settings-form").elements[k].value = v;
+}
+$("settings-form").onsubmit = (e) => {
+  e.preventDefault();
+  run(e.submitter, async () => {
+    const values = Object.fromEntries(new FormData(e.target));
+    values.players = Number(values.players);
+    if (!values.admin_password) delete values.admin_password;
+    if (!values.server_password && !$("clear-join-password").checked)
+      delete values.server_password;
+    await api(base() + "/settings", {
+      method: "PUT",
+      body: JSON.stringify(values),
     });
-  } catch (e) { f.innerHTML = ""; $("settings-desc").textContent = "ERROR: " + e.message; }
-}
-$("settings-load").onclick = loadSettings;
-$("settings-save").onclick = async () => {
-  const values = {};
-  $("settings-form").querySelectorAll("input,select").forEach(i => values[i.dataset.key] = i.value);
-  const j = await api.req(`/api/servers/${current}/settings`, { method: "PUT", body: JSON.stringify({ values }) });
-  alert("Saved. " + (j.note || "Restart server to apply.")); loadConfig(); loadEnv();
-};
-
-// env + public address / share link
-async function loadEnv() {
-  if (!current) return;
-  const j = await api.req(`/api/servers/${current}/env`);
-  $("env-editor").value = JSON.stringify(j.env, null, 2);
-  $("ports-view").textContent = JSON.stringify(j.ports, null, 2);
-  try {
-    const d = await api.req(`/api/servers/${current}`);
-    $("public-addr").value = d.public_address || "";
-    $("show-homepage").checked = !d.hidden;
-    const url = `${location.origin}/share/${current}`;
-    const a = $("share-link"); a.href = url; a.textContent = url;
-  } catch {}
-}
-$("show-homepage").onchange = async () => {
-  if (!current) return;
-  const j = await api.req(`/api/servers/${current}/visibility`, { method: "PUT", body: JSON.stringify({ hidden: !$("show-homepage").checked }) });
-  const srv = servers.find(x => x.id === current);
-  if (srv) srv.hidden = j.hidden;
-  loadServers();
-};
-$("public-save").onclick = async () => {
-  if (!current) return;
-  const j = await api.req(`/api/servers/${current}/public-address`, { method: "PUT", body: JSON.stringify({ public_address: $("public-addr").value.trim() }) });
-  const url = `${location.origin}/share/${current}`;
-  const a = $("share-link"); a.href = url; a.textContent = url;
-  alert("Saved. Share link: " + url);
-};
-$("share-copy").onclick = () => { navigator.clipboard?.writeText($("share-link").href); };
-$("env-save").onclick = async () => {
-  const env = JSON.parse($("env-editor").value);
-  await api.req(`/api/servers/${current}/env`, { method: "PUT", body: JSON.stringify({ env }) });
-  alert("Saved. Use Update/Restart to apply.");
-};
-
-// custom image build box
-async function loadBuildBox() {
-  if (!current) return;
-  try {
-    const d = await api.req(`/api/servers/${current}`);
-    const j = await api.req(`/api/servers/${current}/build/dockerfile`);
-    $("build-dockerfile").value = j.dockerfile || "";
-    $("build-state").textContent = d.has_dockerfile
-      ? `Custom image: ${d.image} (Dockerfile stored — Rebuild to apply changes, then Restart)`
-      : "No custom Dockerfile stored. Pulled image: " + d.image;
-  } catch (e) { $("build-state").textContent = "ERROR: " + e.message; }
-}
-async function runBuild(startAfter) {
-  if (!current) return;
-  const df = $("build-dockerfile").value;
-  if (!df.trim()) return alert("Paste a Dockerfile first");
-  await api.req(`/api/servers/${current}/build`, { method: "POST", body: JSON.stringify({ dockerfile: df, start_after: startAfter }) });
-  const st = await pollBuild(current, $("build-log"));
-  alert(st.state === "done" ? "Image built." : "Build failed: " + (st.error || "unknown"));
-  loadServers(); refreshStats();
-}
-$("build-run").onclick = () => runBuild(false);
-$("build-run-start").onclick = () => runBuild(true);
-
-// mods
-async function loadMods() {
-  if (!current) return;
-  try {
-    const j = await api.req(`/api/servers/${current}/mods`);
-    $("mods-path").textContent = "Mods folder: " + j.mods_dir + "/  (inside server volume)";
-    const cat = $("mods-catalog"); cat.innerHTML = "";
-    (j.catalog || []).forEach(m => {
-      const row = document.createElement("div"); row.className = "cmdrow";
-      row.innerHTML = `<div style="flex:1"><b>${m.name}</b><br><span class="muted small">${m.description || ""}</span></div>`;
-      const btn = document.createElement("button"); btn.textContent = "Install"; btn.className = "primary";
-      btn.onclick = async () => {
-        let url = m.url;
-        if (!url) url = prompt(`Paste download URL for ${m.name} (Linux build .zip):`, "https://");
-        if (!url) return;
-        btn.disabled = true; btn.textContent = "Installing…";
-        try {
-          await api.req(`/api/servers/${current}/mods/install`, { method: "POST", body: JSON.stringify({ mod_id: m.id, url_override: url }) });
-          alert("Installed. Restart server to load it."); loadMods();
-        } catch (e) { alert("Install failed: " + e.message); }
-        btn.disabled = false; btn.textContent = "Install";
-      };
-      row.appendChild(btn); cat.appendChild(row);
-    });
-    if (!(j.catalog || []).length) cat.innerHTML = "<p class='muted small'>No catalog for this game — use URL install or upload below.</p>";
-    const tb = document.querySelector("#mods-table tbody"); tb.innerHTML = "";
-    (j.installed || []).forEach(f => {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `<td>${f.name}${f.is_dir ? " /" : ""}</td><td class="muted">${f.is_dir ? "dir" : (f.size_bytes / 1024).toFixed(1) + " KB"}</td><td></td>`;
-      const del = document.createElement("button"); del.textContent = "Delete"; del.className = "mini";
-      del.onclick = async () => { if (confirm(`Delete ${f.name}?`)) { await api.req(`/api/servers/${current}/mods/${encodeURIComponent(f.name)}`, { method: "DELETE" }); loadMods(); } };
-      tr.lastChild.appendChild(del); tb.appendChild(tr);
-    });
-  } catch (e) { $("mods-path").textContent = "ERROR: " + e.message; }
-}
-$("mods-refresh").onclick = loadMods;
-$("mod-install-url").onclick = async () => {
-  const url = $("mod-url").value.trim(); if (!url || !current) return;
-  await api.req(`/api/servers/${current}/mods/install`, { method: "POST", body: JSON.stringify({ url }) });
-  $("mod-url").value = ""; alert("Installed. Restart server to load it."); loadMods();
-};
-$("mod-upload").onclick = async () => {
-  const f = $("mod-file").files[0]; if (!f || !current) return alert("Pick a file first");
-  const fd = new FormData(); fd.append("file", f);
-  const r = await fetch(`/api/servers/${current}/mods/upload`, { method: "POST", headers: { Authorization: "Bearer " + api.token }, body: fd });
-  if (!r.ok) throw new Error(await r.text());
-  alert("Uploaded. Restart server to load it."); loadMods();
-};
-
-// backups
-async function loadBackups() {
-  if (!current) return;
-  const j = await api.req(`/api/backups?server=${current}`);
-  const tb = document.querySelector("#backup-table tbody"); tb.innerHTML = "";
-  j.forEach(b => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${b.filename}</td><td>${(b.size_bytes / 1024).toFixed(1)} KB</td><td>${b.created}</td><td></td>`;
-    const del = document.createElement("button"); del.textContent = "Delete"; del.className = "mini";
-    del.onclick = async () => { if (confirm("Delete backup?")) { await api.req(`/api/backups/${b.filename}`, { method: "DELETE" }); loadBackups(); } };
-    tr.lastChild.appendChild(del); tb.appendChild(tr);
+    notify("Settings saved. Start the server to apply them.");
+    await loadSettings();
   });
-}
-$("backup-now").onclick = async () => { await api.req(`/api/servers/${current}/backup`, { method: "POST" }); loadBackups(); };
-$("backup-refresh").onclick = loadBackups;
-
-// new server modal (Create vs Create + Start)
-$("add-server-btn").onclick = () => {
-  $("modal").classList.remove("hidden"); $("ns-err").textContent = "";
-  updateNsDesc(true);
 };
-$("ns-cancel").onclick = () => $("modal").classList.add("hidden");
-async function pollBuild(serverId, logEl, btns) {
-  // poll build job until done/error, streaming log tail into logEl
-  for (let i = 0; i < 200; i++) {
-    await new Promise(r => setTimeout(r, 3000));
-    const st = await api.req(`/api/servers/${serverId}/build/status`);
-    if (logEl) { logEl.classList.remove("hidden"); logEl.textContent = (st.log || []).slice(-30).join("\n"); logEl.scrollTop = 1e9; }
-    if (st.state === "done" || st.state === "error") return st;
-  }
-  return { state: "error", error: "timed out waiting for build" };
-}
-async function doCreate(start) {
-  $("ns-err").textContent = "";
-  const dockerfile = $("ns-dockerfile").value;
-  try {
-    let env = {};
-    if ($("ns-env").value.trim()) env = JSON.parse($("ns-env").value);
-    const j = await api.req("/api/servers", { method: "POST", body: JSON.stringify({
-      name: $("ns-name").value.trim(), game: $("ns-template").value,
-      image: $("ns-image").value.trim() || null, rcon_password: $("ns-rcon").value || null, env, start,
-      dockerfile: dockerfile.trim() || null,
-    }) });
-    // optional build context zip (uploaded before the real build so COPY works)
-    const ctx = $("ns-context").files[0];
-    if (ctx && j.id) {
-      const fd = new FormData(); fd.append("file", ctx);
-      await fetch(`/api/servers/${j.id}/build/context`, { method: "POST", headers: { Authorization: "Bearer " + api.token }, body: fd });
-      // wait out the auto-started build (it may have missed the context), then rebuild properly
-      await pollBuild(j.id, $("ns-buildlog"));
-      try {
-        await api.req(`/api/servers/${j.id}/build`, { method: "POST", body: JSON.stringify({ start_after: start }) });
-      } catch (e) { if (!String(e.message).includes("already in progress")) throw e; }
-    }
-    if (j.build === "started") {
-      // custom Dockerfile: build first, then land on the server
-      const st = await pollBuild(j.id, $("ns-buildlog"));
-      if (st.state !== "done") { $("ns-err").textContent = "Build failed: " + (st.error || "unknown"); return; }
-    }
-    $("modal").classList.add("hidden");
-    nsSuggested = "";
-    $("ns-name").value = ""; $("ns-rcon").value = ""; $("ns-env").value = ""; $("ns-dockerfile").value = "";
-    $("ns-context").value = ""; $("ns-buildlog").classList.add("hidden"); $("ns-buildlog").textContent = "";
+$("remove-server").onclick = () =>
+  run($("remove-server"), async () => {
+    const s = await api(base());
+    const confirmation = prompt(
+      `Type ${s.name} to remove its registration. Files and backups are retained.`,
+    );
+    if (confirmation === null) return;
+    await post(base() + "/actions", { action: "remove", confirmation });
+    selected = "";
+    showPage("overview");
     await loadServers();
-    if (j.id) selectServer(j.id);
-  } catch (e) { $("ns-err").textContent = e.message; }
+  });
+async function loadMods() {
+  const j = await api(base() + "/mods");
+  modData = j.installed;
+  renderMods();
+  $("mod-events").textContent =
+    j.events
+      .map((e) => new Date(e.at * 1000).toLocaleString() + " · " + e.message)
+      .join("\n") || "No installations yet.";
 }
-$("ns-create").onclick = () => doCreate(false);
-$("ns-create-start").onclick = () => doCreate(true);
+function renderMods() {
+  const query = $("mod-search").value.toLowerCase(),
+    filter = $("mod-filter").value,
+    sort = $("mod-sort").value;
+  const mods = modData
+    .filter(
+      (m) =>
+        [m.name, m.author, m.version, m.description]
+          .join(" ")
+          .toLowerCase()
+          .includes(query) &&
+        (filter === "all" || m.enabled === (filter === "enabled")),
+    )
+    .sort((a, b) =>
+      sort === "newest"
+        ? b.installed_at - a.installed_at
+        : String(a[sort]).localeCompare(String(b[sort])),
+    );
+  $("mod-list").replaceChildren();
+  for (const m of mods) {
+    const card = text("article", "", "card mod-card");
+    card.append(
+      text(
+        "span",
+        m.enabled ? "ENABLED · RESTART TO APPLY" : "DISABLED · FILES PRESERVED",
+        "tag",
+      ),
+      text("h3", m.name || m.id),
+      text("p", m.description || "No description supplied.", "description"),
+    );
+    const dl = document.createElement("dl");
+    for (const [k, v] of [
+      ["Version", m.version],
+      ["Author", m.author],
+      ["Source", m.source],
+      ["Installed", new Date(m.installed_at * 1000).toLocaleDateString()],
+      ["Compatibility", "Unverified · Linux"],
+      ["Updates", "Not checked"],
+      ["Dependencies", m.dependencies.join(", ") || "None declared"],
+      ["Files", m.files.map((f) => f.name).join(", ")],
+      ["Package ID", m.id],
+    ])
+      dl.append(text("dt", k), text("dd", v));
+    card.append(dl);
+    if (m.installation_error)
+      card.append(text("p", m.installation_error, "error"));
+    const actions = text("div", "", "actions");
+    actions.append(
+      button(m.enabled ? "Disable" : "Enable", async () => {
+        let ack = false;
+        if (!m.enabled) {
+          ack = confirm(
+            "This mod is unverified on native Linux. Have you checked the author's dedicated Linux instructions and backed up your world? Enable anyway?",
+          );
+          if (!ack) return;
+        }
+        await post(base() + `/mods/${m.id}/actions`, {
+          action: m.enabled ? "disable" : "enable",
+          acknowledge_unverified: ack,
+        });
+        await loadMods();
+        notify("Mod state saved. Start / restart to apply.");
+      }),
+      button("Update", () => openInstall(m.id)),
+      button(
+        "Remove",
+        async () => {
+          if (!confirm(`Remove ${m.name} from the library?`)) return;
+          await post(base() + `/mods/${m.id}/actions`, { action: "remove" });
+          await loadMods();
+        },
+        "danger",
+      ),
+    );
+    if (m.previous)
+      actions.append(
+        button("Revert update", async () => {
+          if (!confirm("Restore the previous package revision?")) return;
+          await post(base() + `/mods/${m.id}/actions`, { action: "rollback" });
+          await loadMods();
+        }),
+      );
+    card.append(actions);
+    $("mod-list").append(card);
+  }
+  if (!mods.length)
+    $("mod-list").append(
+      text(
+        "div",
+        query
+          ? "No matching mods."
+          : "Your library is ready. Upload a package to get started.",
+        "empty",
+      ),
+    );
+}
+for (const id of ["mod-search", "mod-filter", "mod-sort"])
+  $(id).addEventListener("input", renderMods);
+function openInstall(id = "") {
+  updateId = id;
+  $("install-error").textContent = "";
+  $("install-context").textContent = id
+    ? "Select a replacement package. The previous revision remains available to revert."
+    : "Validated first. Installed disabled. Yours to enable.";
+  $("install-dialog").showModal();
+}
+$("open-install").onclick = () => openInstall();
+$("upload-form").onsubmit = (e) => {
+  e.preventDefault();
+  run(e.submitter, async () => {
+    const file = $("mod-file").files[0];
+    if (file.size > 128 * 1024 * 1024) throw new Error("File exceeds 128 MiB.");
+    try {
+      await api(base() + "/mods/upload", {
+        method: "POST",
+        body: file,
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "X-Filename": file.name,
+          "X-Update-Id": updateId,
+        },
+      });
+      $("install-dialog").close();
+      await loadMods();
+      notify("Package validated and stored. New packages remain disabled.");
+    } catch (err) {
+      $("install-error").textContent = err.message;
+    }
+  });
+};
+$("url-form").onsubmit = (e) => {
+  e.preventDefault();
+  run(e.submitter, async () => {
+    try {
+      await post(base() + "/mods/url", {
+        ...Object.fromEntries(new FormData(e.target)),
+        update_id: updateId,
+      });
+      $("install-dialog").close();
+      await loadMods();
+      notify("Download validated and installed.");
+    } catch (err) {
+      $("install-error").textContent = err.message;
+    }
+  });
+};
+async function loadBackups() {
+  const j = await api(base() + "/backups");
+  for (const [k, v] of Object.entries(j.policy))
+    $("backup-policy").elements[k].value = v;
+  $("schedule-status").textContent = j.schedule.status
+    ? `Last scheduled attempt: ${j.schedule.status}${j.schedule.error ? " · " + j.schedule.error : ""}`
+    : "No scheduled backup has run yet.";
+  $("backup-list").replaceChildren();
+  for (const b of j.backups) {
+    const row = text("div", "", "card backup-row"),
+      label = text("div", "");
+    label.append(
+      text("b", b.filename),
+      text(
+        "p",
+        `${new Date(b.created * 1000).toLocaleString()} · ${(b.size_bytes / 1024 ** 2).toFixed(1)} MiB · Checksum verified`,
+        "small muted",
+      ),
+    );
+    const actions = text("div", "", "actions");
+    actions.append(
+      button("Preview restore", async () => {
+        const preview = await post(base() + "/backups/restore", {
+          filename: b.filename,
+          dry_run: true,
+        });
+        const s = await api(base());
+        restoreTarget = { sid: selected, filename: b.filename };
+        $("restore-summary").replaceChildren(
+          text("b", b.filename),
+          text(
+            "p",
+            `${preview.files} verified files · ${(preview.extracted_bytes / 1024 ** 2).toFixed(1)} MiB · ${preview.destination}`,
+          ),
+        );
+        $("restore-label").textContent = `Type ${s.name} to confirm`;
+        $("restore-confirmation").value = "";
+        $("restore-dialog").showModal();
+      }),
+      button(
+        "Delete",
+        async () => {
+          if (!confirm("Delete this backup permanently?")) return;
+          await api(base() + "/backups/" + b.filename, { method: "DELETE" });
+          await loadBackups();
+        },
+        "danger",
+      ),
+    );
+    row.append(label, actions);
+    $("backup-list").append(row);
+  }
+  if (!j.backups.length)
+    $("backup-list").append(
+      text(
+        "div",
+        "No snapshots yet. Create one before changing your world.",
+        "empty",
+      ),
+    );
+}
+$("backup-now").onclick = () =>
+  run($("backup-now"), async () => {
+    if (
+      !confirm(
+        "Create a backup? A running server will stop and restart after a successful verified backup.",
+      )
+    )
+      return;
+    notify("Creating and verifying backup. Please wait…");
+    await post(base() + "/backups");
+    await loadBackups();
+    await refreshDetail();
+    notify("Backup verified and saved.");
+  });
+$("backup-policy").onsubmit = (e) => {
+  e.preventDefault();
+  run(e.submitter, async () => {
+    const v = Object.fromEntries(new FormData(e.target));
+    for (const k of Object.keys(v)) v[k] = Number(v[k]);
+    await api(base() + "/backups/policy", {
+      method: "PUT",
+      body: JSON.stringify(v),
+    });
+    notify("Backup schedule saved.");
+  });
+};
+for (const b of document.querySelectorAll("[data-close]"))
+  b.onclick = () => $(b.dataset.close).close();
+for (const id of ["new-server", "overview-create"])
+  $(id).onclick = () => $("create-dialog").showModal();
+$("create-form").onsubmit = (e) => {
+  e.preventDefault();
+  run(e.submitter, async () => {
+    const v = Object.fromEntries(new FormData(e.target));
+    const s = await post("servers", {
+      name: v.name,
+      game_port: Number(v.game_port),
+      settings: { admin_password: v.admin_password, server_name: v.name },
+    });
+    $("create-dialog").close();
+    e.target.reset();
+    await selectServer(s.id);
+    notify("Server registered. Choose Install runtime when ready.");
+  });
+};
+setInterval(async () => {
+  if (!csrf || !selected || busy || document.hidden) return;
+  try {
+    await refreshDetail();
+    if (tab === "health" || tab === "logs") await refreshTab();
+  } catch (e) {
+    notify(e.message, true);
+  }
+}, 5000);
+(async () => {
+  try {
+    const j = await api("session");
+    csrf = j.csrf;
+    await boot();
+  } catch {
+    showLogin();
+  }
+})();
 
-if (api.token) boot();
+let restoreTarget = null;
+$("restore-form").onsubmit = (e) => {
+  e.preventDefault();
+  run(e.submitter, async () => {
+    if (!restoreTarget) return;
+    await post(`servers/${restoreTarget.sid}/backups/restore`, {
+      filename: restoreTarget.filename,
+      dry_run: false,
+      confirmation: $("restore-confirmation").value,
+    });
+    $("restore-dialog").close();
+    notify("Saved data restored. Server remains stopped.");
+  });
+};

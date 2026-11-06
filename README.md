@@ -1,224 +1,62 @@
-# 🎮 GameHub — self-hosted game server manager
+# GameHub
 
-Control **Palworld** (start/stop/restart, live console, RCON player admin, PalWorldSettings editor, backups, updates, metrics) + easily add **Minecraft, Valheim, Project Zomboid, or any Docker game**.
+A private, self-hosted Palworld control room: lifecycle management, logs and RCON,
+versioned asset-mod packages, verified backups, and a responsive dark interface.
+Python/FastAPI + vanilla JavaScript; Docker Compose is the supported deployment.
 
-Stack: **Python FastAPI backend** + vanilla JS frontend, Docker Compose deploy. The manager controls game containers via the Docker socket.
+**Development hardening release; not certified production-ready.** Read
+[TESTING.md](TESTING.md) for observed results and remaining acceptance criteria.
+This fork intentionally disables generic images, Dockerfile builds, anonymous
+status pages, and other game templates until they have reviewed controller
+policies. It does not discover or adopt existing Docker workloads.
 
-> Unofficial community project. Not affiliated with Pocketpair, Valve, Mojang, or the authors of the game-server Docker images used in the templates.
+## Architecture
 
-## Features
+- **Web**: UID 1000, read-only filesystem, session database only; no Docker socket,
+  game mounts, or backup mounts. Argon2id login, HttpOnly cookies, CSRF tokens,
+  session expiration/revocation and an activity log.
+- **Controller**: private authenticated capability API, UID 1000 plus the Docker
+  socket group. Owns instance records, mod revisions and backups. The socket
+  still grants root-equivalent host authority: this is a sensitive component.
+- **Game instances**: fixed digest-pinned native Linux image, fixed per-instance
+  data root, non-root user, dropped capabilities, bounded CPU/RAM/PIDs, no automatic
+  restart loop. Only the game UDP port is published, to loopback by default.
 
-- **Lifecycle**: Start / Stop / Restart, state-aware buttons (can't Start twice or Delete while running)
-- **Live console**: websocket log stream with auto-reconnect + polling fallback, RCON command box with per-game quick buttons
-- **Players**: list via RCON, Kick/Ban (Palworld uses `KickPlayer`/`BanPlayer <steamid>`)
-- **Config**: raw file editor + parsed Palworld `OptionSettings` form
-- **Mods tab**: per-game mods folder, one-click catalog installs, URL install, file upload (zips auto-extract)
-- **Backups**: one-click tar.gz of server volumes
-- **⬆ Update**: pulls latest image + recreates (how SteamCMD games update) with live progress (`⏳ Updating…` → `✅ done`)
-- **Metrics**: CPU / RAM / players with legend + history chart
-- **Share page**: public read-only status page per server (`/share/{id}`) with join address, stats, player names — no login needed
-- **Custom images**: paste a Dockerfile (+ optional context zip) in the create modal or Env tab — built server-side with live logs, tagged per-server, with Rebuild
-- **Public homepage + IP-gated admin**: `/` shows servers publicly (per-server hide toggle; hidden ones stay reachable via share link); the management UI lives at `/admin`, optionally restricted to your IPs via `ADMIN_ALLOWED_IPS`
-- **Multi-game**: templates for Palworld, Minecraft Java, Valheim, Project Zomboid, Generic/Custom
+## Local development
 
-## Screenshots
-
-![GameHub login](docs/screenshot-dashboard.png)
-*Login screen (retro theme). The dashboard adds server list, live console, players, Palworld settings, mods, backups, metrics + share links.*
-
-## Deploy
-
-### Requirements
-
-- Linux server: Ubuntu 22.04 / 24.04 (Debian works too), 4GB+ RAM for Palworld, SSD recommended
-- Docker + Docker Compose plugin (the installer script handles this)
-- Ports: **8000/tcp** manager UI. Game ports reachable directly, or via playit tunnel behind CGNAT (see below)
-
-### Option A — one-command (recommended)
+Use a disposable checkout and an existing Docker installation. No script installs
+host packages or changes the firewall, SSH, Tailscale or Docker daemon.
 
 ```bash
-git clone https://github.com/ikazreal21/gamehub.git /opt/gamehub
-cd /opt/gamehub
-chmod +x setup-server.sh
-sudo ./setup-server.sh --admin-pass 'pick-a-strong-password' --with-playit --yes
+uv venv .venv
+uv pip install --python .venv/bin/python -r requirements-dev.txt
+.venv/bin/python scripts/local-dev.py
+docker compose --env-file .dev/.env -f compose.yaml up -d --build --wait
 ```
 
-What the script does: installs Docker + UFW (allows ssh + manager port), generates `.env` with a random `SECRET_KEY`, runs `docker compose up -d --build`, optionally installs the playit agent. It prints your UI URL + login at the end.
-
-Flags: `--admin-user admin`, `--port 8000`, `--with-playit`, `--playit-secret KEY` (non-interactive playit claim), `--yes`.
-
-### Option B — manual
+Open `http://127.0.0.1:18080`. The generated local password is in
+`.dev/admin-password`; do not share or commit it. Local configuration sets
+`COOKIE_SECURE=false` only for this isolated HTTP test. Production requires HTTPS.
 
 ```bash
-git clone https://github.com/ikazreal21/gamehub.git /opt/gamehub
-cd /opt/gamehub
-cp .env.example .env
-nano .env   # set ADMIN_PASS + SECRET_KEY (openssl rand -hex 32)
-docker compose up -d --build
-# open http://<server-ip>:8000  login: admin / your ADMIN_PASS
+.venv/bin/pytest -q
+.venv/bin/python scripts/docker-smoke.py
+# Explicitly download the disposable game runtime, with a 15-minute deadline:
+.venv/bin/python scripts/docker-smoke.py --install
 ```
 
-### CGNAT / playit.gg setup (e.g. PH ISPs behind CGNAT)
+Stop owned game instances in the UI before `docker compose --env-file .dev/.env
+-f compose.yaml down`. Runtime-created game containers are deliberately outside
+Compose's service lifecycle. Data is retained; no volume removal or prune is needed.
 
-Router port-forward won't work behind CGNAT. The playit agent tunnels out from your server:
+[View all 16 screenshots](docs/screenshots/index.html) — actual desktop/mobile UI, including demo mod-library entries and restore preview.
 
-```bash
-sudo playit
-# prints https://playit.gg/claim/xxxx -> open it, login, claim agent
-```
+## Guides
 
-Then in https://playit.gg/account/tunnels → Add Tunnel:
-- UDP `127.0.0.1:8211` — Palworld game
-- UDP `127.0.0.1:27015` — Palworld query
+[Security and threat model](SECURITY.md) · [Audit](AUDIT.md) ·
+[Deployment](DEPLOYMENT.md) · [Palworld](PALWORLD.md) · [Mods](MODDING.md) ·
+[Backup and recovery](BACKUPS.md) · [Validation](TESTING.md)
 
-Paste the playit address into GameHub (Env tab → Public join address) and share the `/share/{id}` page with players. Keep RCON `25575` internal — do NOT tunnel it.
-
-Docker-mode alternative: put your agent key in `.env` as `PLAYIT_SECRET=...` then `docker compose --profile playit up -d`.
-
-### Updates & maintenance
-
-```bash
-cd /opt/gamehub
-git pull
-docker compose up -d --build        # update manager
-# game updates: use ⬆ Update button in UI (pulls latest SteamCMD image + recreates)
-# backups live in ./backups/ - copy them off-site
-```
-
-Put the UI behind HTTPS in production (Cloudflare Tunnel, Caddy, or Nginx reverse proxy). If proxying through Cloudflare: turn OFF Bot Fight Mode, add a WAF Skip + Cache Bypass for `/api/*`, keep WebSockets ON.
-
-### Restricting /admin to your IP
-
-`/` (homepage), `/share/*` and `/public/*` are intentionally public. The management UI at `/admin` **and** the management API (`/api/*`, login included) can be locked to your IPs:
-
-```bash
-# .env
-ADMIN_ALLOWED_IPS=192.168.50.0/24, 203.0.113.7
-```
-
-Comma-separated IPs/CIDRs. Behind Cloudflare Tunnel it reads `CF-Connecting-IP`. Localhost is always allowed. Empty = no restriction (login still required).
-
-⚠️ On CGNAT / mobile data your public IP changes often — if you get locked out (403), SSH in, clear the value, and rebuild: `docker compose up -d --build`.
-
-## Usage
-
-1. **+ New** → pick template (name auto-suggests, e.g. `palworld-1`, editable), set RCON/admin password → **Create** (stopped) or **Create + Start**.
-2. **Console tab**: live logs + RCON command box. Quick buttons: `ShowPlayers`, `Save`, `Broadcast …`.
-3. **Players tab**: list via `ShowPlayers`, Kick/Ban buttons.
-4. **Config tab**: raw file editor with a file picker per template (templates without files show a notice). **Settings tab**: friendly form for every game — Palworld `OptionSettings` (62 fields), Minecraft `server.properties` (20 fields), Zomboid server `.ini`, Valheim/Generic env vars. Same data as Config/Env, friendlier.
-5. **Mods tab**: install from catalog / URL / file upload, then Restart to load.
-6. **Env tab**: public join address + share link, JSON env (server name, passwords, ports). Save → **Update** button recreates container to apply.
-7. **Backups tab**: one-click tar.gz of volume → `./backups/`. Restore: stop server, then `tar -xzf backups/<file> -C /var/lib/docker/volumes/<vol>/_data --strip-components=1`.
-8. **⬆ Update**: pulls latest image + recreates (how SteamCMD games update), with progress shown in the UI.
-
-## Custom images (Dockerfile builds)
-
-In **+ New** (or Env tab → Custom image build): paste a `Dockerfile` instead of an image name. GameHub builds it on your server as a background job with live logs and tags it `gamehub-custom-<name>:latest`. Optional: attach a context `.zip` for files your Dockerfile `COPY`s. Rebuild anytime from Env tab (then Restart). Compares to pulling: full control, slower first deploy, uses build disk.
-
-Raw `docker-compose.yml` upload is intentionally **not** supported: compose files can request `privileged`, host mounts and host networking, which would escape the manager's control. The image + ports + env fields plus Dockerfile builds cover the same ground safely.
-
-## Mods
-
-Each template declares a mods folder (Palworld `Pal/Binaries/Linux/Mods`, Minecraft `mods/`, Valheim `plugins/`, Zomboid `Server/mods`). Note: **Palworld UE4SS/script mods are Windows-server-only** — on the Linux image only `.pak`/config mods work. For `!give`-style mods you need a Windows-based Palworld server (e.g. a Wine/Proton image).
-
-## Adding other games
-
-**No-code path (Generic template)**: + New → Generic/Custom → paste any Docker image + ports/env. Done.
-
-**Template path (recommended)**: edit `manager/app/games/templates.py` — copy e.g. the `valheim` block:
-
-```python
-_register(GameTemplate(
-    id="rust", name="Rust",
-    image="didstopia/rust-server:latest",
-    ports=[{"host": 28015, "container": 28015, "protocol": "udp"}],
-    env_defaults={"RUST_SERVER_NAME": "GameHub Rust", ...},
-    volumes={"data": "/steamcmd/rust"},
-    rcon_supported=True, rcon_port=28016,
-    player_list_command="status",
-    mods_dir="mods",
-))
-```
-
-Restart manager → new template appears in UI. Fields:
-| field | meaning |
-|---|---|
-| `image` | Docker image |
-| `ports` | host→container defaults |
-| `env_defaults` | default env vars (overridable per server) |
-| `volumes` | named-volume key → container path |
-| `rcon_*` | RCON support, port, password env key |
-| `config_files` | editable files inside volume |
-| `helpful_commands` | quick buttons in console |
-| `mods_dir` / `mod_catalog` | mods folder + one-click catalog |
-
-Player parsing per game lives in `manager/app/rcon_helpers.py::parse_players` — extend for new formats.
-
-## Project layout
-
-```
-gamehub/
-  setup-server.sh         # one-command server installer (+ playit for CGNAT)
-  docker-compose.yml      # manager + optional playit profile
-  .env.example            # placeholders only - real .env is git-ignored
-  .gitignore
-  manager/
-    Dockerfile
-    requirements.txt
-    app/
-      main.py             # REST + WS endpoints, static hosting
-      config.py auth.py models.py
-      docker_service.py   # container lifecycle + instances.json
-      rcon.py             # Source RCON client
-      rcon_helpers.py     # per-server RCON target + player parsing
-      palworld_config.py  # OptionSettings parser/serializer
-      game_settings.py    # per-game Settings forms (all templates)
-      backups.py
-      mods.py             # mods folder + URL installs
-      builds.py           # custom Dockerfile builds
-      ip_gate.py          # IP allowlist for /admin + /api
-      games/base.py       # GameTemplate + ServerInstance dataclasses
-      games/templates.py  # ★ add games here ★
-    static/               # frontend (index.html homepage, admin.html, share.html, app.js, styles.css, favicon.svg)
-  docs/                   # screenshots for this README
-  data/ backups/          # runtime (volumes, instances.json, archives) - git-ignored
-```
-
-## API
-
-Auth: all `/api/*` except `POST /api/login` need `Authorization: Bearer <token>`. Public share endpoints need no auth.
-
-- `GET /api/templates`, `GET/POST /api/servers`, `GET/DELETE /api/servers/{id}`
-- `POST /api/servers/{id}/start|stop|restart`, `POST /api/servers/{id}/update` + `GET .../update/status`
-- `GET /api/servers/{id}/stats`, `GET /api/servers/{id}/logs`, `WS /api/servers/{id}/logs/ws?token=`
-- `POST /api/servers/{id}/rcon {command}`, `GET /api/servers/{id}/players`
-- `GET/PUT /api/servers/{id}/env`, `PUT /api/servers/{id}/public-address`
-- `GET/PUT /api/servers/{id}/config`, `GET/PUT /api/servers/{id}/settings` (all games), `GET/PUT /api/servers/{id}/palworld-settings` (legacy)
-- `GET /api/servers/{id}/mods`, `POST .../mods/install`, `POST .../mods/upload`, `DELETE .../mods/{name}`
-- `POST /api/servers/{id}/build {dockerfile?, start_after?}`, `GET .../build/status`, `GET .../build/dockerfile`, `POST .../build/context` (.zip)
-- `GET /api/backups`, `POST /api/servers/{id}/backup`, `DELETE /api/backups/{f}`, `GET /api/system`
-- `GET /public/servers` (excludes hidden), `GET /public/servers/{id}` (no auth — status, join address, stats, player names only), `GET /share/{id}` page, `/` homepage
-- `PUT /api/servers/{id}/visibility {hidden}` (homepage show/hide)
-
-## Security checklist (do this before going public)
-
-- [ ] `.env` has a strong `ADMIN_PASS` and a random 32-byte `SECRET_KEY` (never commit `.env` — it's git-ignored; only `.env.example` with placeholders is tracked)
-- [ ] UI served over HTTPS (reverse proxy / Cloudflare Tunnel), not plain HTTP
-- [ ] `/admin` + `/api/*` locked via `ADMIN_ALLOWED_IPS` if the site is public (homepage `/` stays open by design)
-- [ ] RCON ports firewalled to localhost / trusted IPs only — never tunneled publicly
-- [ ] Host OS + Docker kept patched; backups copied off-site
-- [ ] Note: the manager mounts the Docker socket, which is root-equivalent on the host — anyone with the admin login effectively has host root. Guard that password.
-- [ ] Template `changeme-*` defaults are placeholders: always set real RCON/admin passwords when creating a server
-
-## Dev (no docker)
-
-```bash
-cd manager
-pip install -r requirements.txt
-MOCK_DOCKER=true ADMIN_PASS=dev-only SECRET_KEY=dev-only-32-bytes-long-xxxx uvicorn app.main:app --reload
-# http://127.0.0.1:8000
-```
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+No production deployment is performed by this repository. Existing Minecraft and
+Palworld files require a separately planned, explicitly authorized migration.
+MIT licensed; unofficial and unaffiliated with Pocketpair or the runtime authors.

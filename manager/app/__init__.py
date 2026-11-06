@@ -1,1 +1,1 @@
-from .main import app  # noqa: F401  (uvicorn entrypoint: app.main:app)
+"""GameHub: web application and restricted controller entry points."""
