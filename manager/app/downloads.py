@@ -25,7 +25,7 @@ class PinnedHTTPS(http.client.HTTPSConnection):
             raise
 
 
-def resolve(url):
+def resolve(url, allowed_hosts=None):
     part = urlsplit(url)
     host = (part.hostname or "").lower()
     if (
@@ -36,7 +36,7 @@ def resolve(url):
         or part.fragment
     ):
         raise ValueError("Use an HTTPS download URL without credentials, custom ports or fragments")
-    if host not in config.DOWNLOAD_HOSTS or not host:
+    if host not in (config.DOWNLOAD_HOSTS if allowed_hosts is None else allowed_hosts) or not host:
         raise ValueError(
             "Download host is not enabled by the operator. Download manually and upload instead."
         )
@@ -46,11 +46,11 @@ def resolve(url):
     return part, sorted(addresses)[0]
 
 
-def download(url, destination, expected_hash):
-    deadline = time.monotonic() + 120
+def download(url, destination, expected_hash, *, allowed_hosts=None, deadline=None, cancel=None):
+    deadline = min(time.monotonic() + 120, deadline or float("inf"))
     for _ in range(5):
-        part, address = resolve(url)
-        if time.monotonic() >= deadline:
+        part, address = resolve(url, allowed_hosts)
+        if time.monotonic() >= deadline or cancel and cancel.is_set():
             raise ValueError("Download deadline exceeded")
         conn = PinnedHTTPS(part.hostname, address, timeout=10)
         try:
@@ -76,7 +76,7 @@ def download(url, destination, expected_hash):
             with destination.open("xb") as output:
                 while chunk := response.read(65536):
                     total += len(chunk)
-                    if total > config.MAX_UPLOAD or time.monotonic() > deadline:
+                    if total > config.MAX_UPLOAD or time.monotonic() > deadline or cancel and cancel.is_set():
                         raise ValueError("Download size limit or deadline exceeded")
                     output.write(chunk)
                     digest.update(chunk)

@@ -30,6 +30,10 @@ DOWNLOAD_HOSTS = frozenset(
     x.strip().lower() for x in os.getenv("MOD_DOWNLOAD_HOSTS", "").split(",") if x.strip()
 )
 PALWORLD_IMAGE = os.getenv("PALWORLD_IMAGE", "")
+PALWORLD_WINE_IMAGE = os.getenv(
+    "PALWORLD_WINE_IMAGE",
+    "thijsvanloef/palworld-server-docker@sha256:911ec2b0fd9a3392e9ab687833344d3cda025998cce7dab11a943fa4cedb3e3f",
+)
 GAME_NETWORK = os.getenv("GAME_NETWORK", "gamehub-games")
 GAME_BIND_IP = os.getenv("GAME_BIND_IP", "127.0.0.1")
 GAME_MEMORY = os.getenv("GAME_MEMORY", "16g")

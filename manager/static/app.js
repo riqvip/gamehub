@@ -5,6 +5,9 @@ let csrf = "",
   tab = "health",
   servers = [],
   modData = [],
+  codeModData = [],
+  codeModState = null,
+  serverRuntime = "native-linux",
   updateId = "",
   busy = false;
 const text = (tag, content, cls) => {
@@ -169,11 +172,19 @@ async function selectServer(id) {
 }
 async function refreshDetail() {
   const s = await api(base());
+  serverRuntime = s.runtime || "native-linux";
   $("server-name").textContent = s.name;
   $("server-meta").textContent =
-    `${s.state} · Game UDP ${s.game_port} · Native Linux`;
+    `${s.state} · Game UDP ${s.game_port} · ` +
+    (serverRuntime === "windows-wine"
+      ? "Windows/Wine · UE4SS"
+      : "Native Linux");
   $("breadcrumb").textContent = "Servers / " + s.name;
   const j = s.job || {};
+  if (tab === "mods" && j.state !== refreshDetail.lastJobState) {
+    refreshDetail.lastJobState = j.state;
+    await loadMods();
+  }
   $("job-panel").hidden = j.state === "idle" || !j.state;
   $("job-title").textContent = `${j.kind || "Installation"} · ${j.state}`;
   $("job-log").textContent =
@@ -335,13 +346,180 @@ $("remove-server").onclick = () =>
     await loadServers();
   });
 async function loadMods() {
-  const j = await api(base() + "/mods");
+  const [j, c, s] = await Promise.all([
+    api(base() + "/mods"),
+    api(base() + "/code-mods"),
+    api(base()),
+  ]);
   modData = j.installed;
+  codeModData = c.installed;
+  codeModState = c;
+  serverRuntime = s.runtime || "native-linux";
+  renderRuntime(s, c);
+  renderCodeMods(c);
   renderMods();
   $("mod-events").textContent =
     j.events
       .map((e) => new Date(e.at * 1000).toLocaleString() + " · " + e.message)
       .join("\n") || "No installations yet.";
+  $("code-mod-events").textContent =
+    c.events
+      .map((e) => new Date(e.at * 1000).toLocaleString() + " · " + e.message)
+      .join("\n") || "No code mod changes yet.";
+}
+function renderRuntime(s, c) {
+  const wine = s.runtime === "windows-wine";
+  const jobRunning = (s.job || {}).state === "running";
+  $("runtime-title").textContent = wine
+    ? "Windows/Wine modded runtime"
+    : "Native Linux runtime";
+  $("runtime-badge").textContent = wine ? "UE4SS MANAGED" : "ASSET MODS ONLY";
+  $("runtime-note").textContent = wine
+    ? "GameHub keeps the pinned UE4SS loader and reviewed Lua packages in check. The loader and mods are applied on the next start. Players still need matching client mods and UE4SS on their own PCs."
+    : "Code mods need the separate Windows/Wine runtime. Conversion backs up the world, copies it into a new installation and leaves the native files untouched, so you can return to them.";
+  $("asset-callout-title").textContent = wine
+    ? "Asset staging is separate from reviewed code mods"
+    : "Game mod loading is unavailable in this runtime";
+  $("asset-callout-text").textContent = wine
+    ? "The Windows runtime has mod loading enabled, but only the reviewed UE4SS packages above have been tested by GameHub. Other PAK assets remain unverified."
+    : "This library can organize and stage asset packages. The current server starts with mod loading disabled; enabling a library entry only stages its files. UE4SS, Lua and Workshop code mods need the separate runtime above.";
+  const actions = $("runtime-actions");
+  actions.replaceChildren();
+  if (!wine) {
+    const b = button(
+      "Switch to Windows/Wine…",
+      async () => {
+        $("runtime-confirm-name").textContent = s.name;
+        $("runtime-confirmation").value = "";
+        $("runtime-ack").checked = false;
+        $("runtime-error").textContent = "";
+        $("runtime-dialog").showModal();
+      },
+      "primary",
+    );
+    b.disabled = !s.installed || s.state === "running" || jobRunning;
+    actions.append(b);
+    actions.append(
+      text(
+        "span",
+        !s.installed
+          ? "Install the server first."
+          : s.state === "running"
+            ? "Stop the server before converting."
+            : "A verified backup is created before the separate installation.",
+        "small muted",
+      ),
+    );
+  } else {
+    if (s.can_return_to_native) {
+      const b = button(
+        "Return to native runtime…",
+        async () => {
+          const confirmation = prompt(
+            `Type ${s.name} to return to the native runtime. The separate Windows files are retained.`,
+          );
+          if (confirmation === null) return;
+          await post(base() + "/runtime", {
+            action: "rollback",
+            confirmation,
+          });
+          notify("Returned to the native runtime.");
+          await refreshDetail();
+          await loadMods();
+        },
+        "danger",
+      );
+      b.disabled = s.state === "running" || jobRunning;
+      actions.append(b);
+    }
+    actions.append(
+      text(
+        "span",
+        c.loader_ready
+          ? "Pinned UE4SS loader verified."
+          : "Install the runtime to prepare the pinned UE4SS loader.",
+        "small muted",
+      ),
+    );
+  }
+}
+function renderCodeMods(c) {
+  $("open-code-install").disabled = !c.loader_ready;
+  $("code-mod-note").textContent = c.compatibility_note;
+  const list = $("code-mod-list");
+  list.replaceChildren();
+  for (const m of c.installed) {
+    const card = text("article", "", "card mod-card");
+    card.append(
+      text(
+        "span",
+        m.enabled ? "ENABLED · RESTART TO APPLY" : "DISABLED · FILES PRESERVED",
+        "tag",
+      ),
+      text("h3", m.name || m.id),
+      text("p", m.description || "No description supplied.", "description"),
+    );
+    const dl = document.createElement("dl");
+    for (const [k, v] of [
+      ["Version", m.version],
+      ["Author", m.author],
+      ["Source", m.source],
+      ["Installed", new Date(m.installed_at * 1000).toLocaleDateString()],
+      ["Compatibility", m.compatibility],
+      ["Dependencies", m.dependencies.join(", ") || "None declared"],
+      ["Files", m.files.map((f) => f.name).join(", ")],
+      ["Package ID", m.id],
+    ])
+      dl.append(text("dt", k), text("dd", v));
+    card.append(dl);
+    if (m.installation_error)
+      card.append(text("p", m.installation_error, "error"));
+    const actions = text("div", "", "actions");
+    actions.append(
+      button(m.enabled ? "Disable" : "Enable", async () => {
+        let ack = false;
+        if (!m.enabled) {
+          ack = confirm(
+            `Enable ${m.name}? Its reviewed Lua code will run in the game container. Every player needs the matching client mod and UE4SS.`,
+          );
+          if (!ack) return;
+        }
+        await post(base() + `/code-mods/${m.id}/actions`, {
+          action: m.enabled ? "disable" : "enable",
+          acknowledge_unverified: ack,
+        });
+        await loadMods();
+        notify("Code mod state saved. Start / restart to apply.");
+      }),
+      button(
+        "Remove",
+        async () => {
+          if (m.enabled) {
+            notify("Disable this code mod and load once before removing it.", true);
+            return;
+          }
+          if (!confirm(`Remove ${m.name} from the reviewed library?`)) return;
+          await post(base() + `/code-mods/${m.id}/actions`, { action: "remove" });
+          await loadMods();
+        },
+        "danger",
+      ),
+    );
+    card.append(actions);
+    list.append(card);
+  }
+  if (!c.installed.length)
+    list.append(
+      text(
+        "div",
+        c.available
+          ? c.loader_ready
+            ? "No reviewed code mods installed. Add Pal Work Priority or upload Base Radius Improved 1.2.2."
+            : "Install the Windows/Wine runtime to prepare the UE4SS loader."
+          : "Switch the stopped server to the Windows/Wine runtime to install reviewed code mods.",
+        "empty",
+      ),
+    );
 }
 function renderMods() {
   const query = $("mod-search").value.toLowerCase(),
@@ -379,7 +557,12 @@ function renderMods() {
       ["Author", m.author],
       ["Source", m.source],
       ["Installed", new Date(m.installed_at * 1000).toLocaleDateString()],
-      ["Compatibility", "Unverified · Linux"],
+      [
+        "Compatibility",
+        m.compatibility === "unverified-linux"
+          ? "Unverified · Linux assets"
+          : m.compatibility || "Unverified",
+      ],
       ["Updates", "Not checked"],
       ["Dependencies", m.dependencies.join(", ") || "None declared"],
       ["Files", m.files.map((f) => f.name).join(", ")],
@@ -395,7 +578,9 @@ function renderMods() {
         let ack = false;
         if (!m.enabled) {
           ack = confirm(
-            "This stages the package's files. Game mod loading is disabled in the current runtime, so staging does not activate the mod in-game. Continue?",
+            serverRuntime === "windows-wine"
+              ? "This asset package is separate from the reviewed UE4SS code mods and is unverified on the Windows runtime. Continue?"
+              : "This stages the package's files. Game mod loading is disabled in the current runtime, so staging does not activate the mod in-game. Continue?",
           );
           if (!ack) return;
         }
@@ -450,6 +635,62 @@ function openInstall(id = "") {
   $("install-dialog").showModal();
 }
 $("open-install").onclick = () => openInstall();
+$("open-code-install").onclick = () => {
+  $("code-install-error").textContent = "";
+  $("code-install-dialog").showModal();
+};
+$("code-upload-form").onsubmit = (e) => {
+  e.preventDefault();
+  run(e.submitter, async () => {
+    const file = $("code-mod-file").files[0];
+    if (file.size > 128 * 1024 * 1024) throw new Error("File exceeds 128 MiB.");
+    try {
+      await api(base() + "/code-mods/upload", {
+        method: "POST",
+        body: file,
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "X-Filename": file.name,
+        },
+      });
+      $("code-install-dialog").close();
+      e.target.reset();
+      await loadMods();
+      notify("Reviewed code mod validated and installed disabled.");
+    } catch (err) {
+      $("code-install-error").textContent = err.message;
+    }
+  });
+};
+$("fetch-pwp").onclick = () =>
+  run($("fetch-pwp"), async () => {
+    try {
+      await post(base() + "/code-mods/install-pwp");
+      $("code-install-dialog").close();
+      await loadMods();
+      notify("Pal Work Priority 0.5.0 installed disabled.");
+    } catch (err) {
+      $("code-install-error").textContent = err.message;
+    }
+  });
+$("runtime-form").onsubmit = (e) => {
+  e.preventDefault();
+  run(e.submitter, async () => {
+    try {
+      await post(base() + "/runtime", {
+        action: "convert",
+        confirmation: $("runtime-confirmation").value,
+        acknowledge_code_mods: $("runtime-ack").checked,
+      });
+      $("runtime-dialog").close();
+      notify("Windows/Wine conversion queued. A verified backup is created first.");
+      await refreshDetail();
+      await loadMods();
+    } catch (err) {
+      $("runtime-error").textContent = err.message;
+    }
+  });
+};
 $("upload-form").onsubmit = (e) => {
   e.preventDefault();
   run(e.submitter, async () => {
@@ -584,13 +825,21 @@ $("create-form").onsubmit = (e) => {
   e.preventDefault();
   run(e.submitter, async () => {
     const v = Object.fromEntries(new FormData(e.target));
+    const ack = $("create-ack").checked;
+    if (v.runtime === "windows-wine" && !ack)
+      throw new Error(
+        "Acknowledge third-party code execution to create a Windows/Wine server.",
+      );
     const s = await post("servers", {
       name: v.name,
       game_port: Number(v.game_port),
+      runtime: v.runtime,
+      acknowledge_code_mods: ack,
       settings: { admin_password: v.admin_password, server_name: v.name },
     });
     $("create-dialog").close();
     e.target.reset();
+    $("create-ack").checked = false;
     await selectServer(s.id);
     notify("Server registered. Choose Install runtime when ready.");
   });

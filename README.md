@@ -1,7 +1,8 @@
 # GameHub
 
 A private, self-hosted Palworld control room: lifecycle management, logs and RCON,
-versioned asset-mod packages, verified backups, and a responsive dark interface.
+versioned asset-mod packages, an optional Windows/Wine runtime with reviewed UE4SS
+code mods, verified backups, and a responsive dark interface.
 Python/FastAPI + vanilla JavaScript; Docker Compose is the supported deployment.
 
 **Development hardening release; not certified production-ready.** Read

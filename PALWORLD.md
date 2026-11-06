@@ -1,10 +1,14 @@
 # Palworld operations
 
-The approved runtime is the native Linux amd64 build of
+The approved runtimes are the native Linux amd64 build and a separately selected
+Windows/Wine build of
 [thijsvanloef/palworld-server-docker](https://github.com/thijsvanloef/palworld-server-docker).
-The checked digest is recorded in `.env.example`. GameHub fixes container mounts,
-capabilities, resource limits, network, image and environment policy; the UI cannot
-supply arbitrary Docker options. Other games are disabled pending reviewed policies.
+Both checked digests are recorded in `.env.example`. The Windows/Wine runtime is
+used only for an explicitly created or converted instance with reviewed UE4SS code
+mods; conversion is covered in [MODDING.md](MODDING.md). GameHub fixes container
+mounts, capabilities, resource limits, network, image and environment policy; the
+UI cannot supply arbitrary Docker options. Other games are disabled pending reviewed
+policies.
 
 1. Create a server registration with a unique name, unused non-privileged UDP port,
    and an admin/RCON password of at least 16 characters. No download starts yet.
@@ -44,13 +48,14 @@ the pinned image uses it for graceful save/shutdown. It is never published to th
 host. Existing containers need controlled recreation to receive environment changes;
 restarting only the controller does not apply them. See the
 [mod investigation](docs/palworld-mod-investigation.md) for the defect found during
-Wine testing and the separate experimental Windows runtime.
+Wine testing and the separately selectable Windows/Wine runtime.
 
 Health reports independently:
 
 - Container running: Docker state.
 - Game process running: owned container process listing.
-- Game initialized: expected response to authenticated RCON Info.
+- Game initialized: expected version from the authenticated private REST API, with
+  an RCON fallback for older containers.
 - Game port bound: unknown until a dedicated port probe is implemented.
 - External connectivity: unknown; an independent client/network check is required.
 

@@ -12,7 +12,7 @@ uv pip install --python .venv/bin/python -r requirements-dev.txt
 bash scripts/check.sh
 ```
 
-**93 automated tests passed.**
+**100 automated tests passed.**
 
 The suite exercises authentication, session expiry/revocation, CSRF, throttling,
 CORS/Origin and security headers, proxy trust chains, controller authentication,
@@ -21,14 +21,18 @@ ZIP bombs, CRC/size/file-count limits, SSRF redirects/private DNS, SHA-256 downl
 mod conflicts/dependencies/enable/disable/update/rollback, failed directory publication,
 configuration injection, backup/restore confirmation/checksums/retention, forced-kill
 handling, lifecycle state, initialization reporting, bounded install failure and cancellation.
-Docker is mocked for unit tests; all files are disposable pytest data.
+It also covers the reviewed Windows/Wine path: synthetic pinned loader preparation,
+loader and script hash rejection, reviewed-version-only upload, enable/disable/remove,
+the separate-runtime conversion transaction and native rollback. Docker is mocked for
+unit tests; all files are disposable pytest data.
 
 The subsequent [requested mod investigation](docs/palworld-mod-investigation.md)
 adds a reproducible `scripts/wine-mod-smoke.py` experiment. Its real Windows/Wine
 Palworld v1.0.5.102999 run loaded Pal Work Priority 0.5.0 with authority readiness,
 authenticated REST info/players/save, graceful save/shutdown and a second container
 start retaining the same empty-world identity. It publishes no ports and never
-mounts existing game data. This does not add Wine support to the panel or establish
+mounts existing game data. The panel now uses the same pinned image and loader for
+an explicitly converted per-instance runtime; the lab does not establish
 client/gameplay compatibility. Evidence is in [the result record](mod-smoke-results.json).
 
 The REST shutdown configuration fix was also tested against a separate native
@@ -47,6 +51,17 @@ save/restart, file-preserving disable/re-enable and world/configuration persiste
 There were no player-built bases or connected clients: Base Radius's authority
 callback and actual expanded-base gameplay remain unverified. The panel's asset
 library continues to reject executable code packages and RAR uploads.
+
+The new panel workflow was then exercised end-to-end on the disposable local stack:
+switch an installed native world to Windows/Wine, verify the pre-conversion backup
+and copied Saved data, let the controller install the pinned Windows runtime and
+UE4SS, fetch Pal Work Priority 0.5.0 and upload a ZIP of the supplied Base Radius
+1.2.2 package, enable both, and start. Startup logged PWP authority readiness and
+Base Radius `v1.2.2 active`; authenticated REST reported initialized. Disabling Base
+Radius through the panel stopped it loading while preserving every script byte and
+kept PWP ready; re-enabling restored both. Native rollback then started the original
+world successfully. Summary in [the result record](mod-smoke-results.json). No
+client joined and no base gameplay was tested.
 
 The WSL execution sandbox prevents Starlette TestClient's thread event loop from
 starting even for an empty FastAPI app; tests were run with approved loopback/thread

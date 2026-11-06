@@ -30,7 +30,7 @@ class SecurityMiddleware:
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
         path = scope["path"]
-        limit = config.MAX_UPLOAD if path.endswith("/mods/upload") else 65536
+        limit = config.MAX_UPLOAD if path.endswith(("/mods/upload", "/code-mods/upload")) else 65536
         headers = dict(scope["headers"])
         try:
             declared = int(headers.get(b"content-length", b"0"))

@@ -41,6 +41,7 @@ GAME_CPUS=2
 COOKIE_SECURE=false
 ALLOWED_HOSTS=localhost,127.0.0.1
 PALWORLD_IMAGE=thijsvanloef/palworld-server-docker@sha256:07313feaecb42ecdea0b737ae922559dc5ab4c63d69275043f0943bd441fc35e
+PALWORLD_WINE_IMAGE=thijsvanloef/palworld-server-docker@sha256:911ec2b0fd9a3392e9ab687833344d3cda025998cce7dab11a943fa4cedb3e3f
 INSTALL_BACKEND=depotdownloader
 INSTALL_TIMEOUT_SECONDS=900
 """)

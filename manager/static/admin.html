@@ -64,7 +64,7 @@
         <div class="sidebar-foot">
           <span class="dot"></span> Private management<br /><span
             class="muted small"
-            >Palworld · Native Linux</span
+            >Palworld · Linux / Wine</span
           ><button id="logout">Sign out</button>
         </div>
       </aside>
@@ -231,9 +231,37 @@
             </div>
           </section>
           <section id="tab-mods" hidden>
+            <div id="runtime-card" class="callout">
+              <div class="nav-row">
+                <b id="runtime-title">Runtime</b>
+                <span id="runtime-badge" class="tag">CHECKING</span>
+              </div>
+              <p id="runtime-note" class="small muted"></p>
+              <div id="runtime-actions" class="actions"></div>
+            </div>
             <div class="page-title">
               <div>
-                <h2>Your mod library.</h2>
+                <h2>Reviewed code mods.</h2>
+                <p class="muted">
+                  UE4SS/Lua mods tested with this panel. Only the exact reviewed
+                  versions are accepted. Players also need the matching client
+                  mods and UE4SS on their own PCs.
+                </p>
+              </div>
+              <button id="open-code-install" class="primary">
+                + Add a code mod
+              </button>
+            </div>
+            <div id="code-mod-list" class="mod-grid"></div>
+            <p id="code-mod-note" class="small muted"></p>
+            <details class="card">
+              <summary>Code mod history</summary>
+              <pre id="code-mod-events"></pre>
+            </details>
+            <hr />
+            <div class="page-title">
+              <div>
+                <h2>Asset package library.</h2>
                 <p class="muted">
                   Your mod library. Versions, dependencies, and a way back.
                 </p>
@@ -241,8 +269,8 @@
               <button id="open-install" class="primary">+ Install a mod</button>
             </div>
             <div class="callout">
-              <b>Game mod loading is unavailable in this runtime</b>
-              <p>
+              <b id="asset-callout-title">Game mod loading is unavailable in this runtime</b>
+              <p id="asset-callout-text">
                 This library can organize and stage asset packages. The current
                 server starts with mod loading disabled; enabling a library entry
                 only stages its files. UE4SS, Lua and Workshop code mods need a
@@ -344,6 +372,17 @@
             max="65535"
             required /></label
         ><label
+          >Runtime<select name="runtime" id="create-runtime">
+            <option value="native-linux">Native Linux</option>
+            <option value="windows-wine">
+              Windows/Wine · UE4SS code mods
+            </option>
+          </select></label
+        ><label class="checkbox"
+          ><input id="create-ack" type="checkbox" /> I understand the
+          Windows/Wine runtime executes third-party Lua mods inside the game
+          container and that players need matching client mods.</label
+        ><label
           >Admin / RCON password<input
             name="admin_password"
             type="password"
@@ -427,6 +466,85 @@
         >Open Palworld on Nexus ↗</a
       >
       <p id="install-error" class="error" role="alert"></p>
+    </dialog>
+    <dialog id="runtime-dialog">
+      <form id="runtime-form">
+        <div class="nav-row">
+          <h2>Enable Windows/Wine mods.</h2>
+          <button
+            type="button"
+            data-close="runtime-dialog"
+            class="icon-button"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+        <p class="muted">
+          GameHub stops the server, creates a verified backup, then builds a
+          separate Windows/Wine installation and copies the world into it. The
+          native files stay untouched and remain available to return to.
+        </p>
+        <div class="callout">
+          <b>Third-party code runs inside the game container</b>
+          <p class="small">
+            Only the reviewed Base Radius Improved 1.2.2 and Pal Work Priority
+            0.5.0 packages are accepted. Players must install the matching
+            client mods and UE4SS themselves. Wine gameplay has not been
+            validated on this host.
+          </p>
+        </div>
+        <label id="runtime-confirm-label"
+          >Type <span id="runtime-confirm-name">the instance name</span> to
+          confirm<input id="runtime-confirmation" required autocomplete="off"
+        /></label>
+        <label class="checkbox"
+          ><input id="runtime-ack" type="checkbox" required /> I understand
+          that reviewed Lua mods will execute in the game container.</label
+        >
+        <button type="submit" class="danger">
+          Create the Windows/Wine installation
+        </button>
+        <p id="runtime-error" class="error" role="alert"></p>
+      </form>
+    </dialog>
+    <dialog id="code-install-dialog">
+      <form id="code-upload-form">
+        <div class="nav-row">
+          <h2>Add a reviewed code mod.</h2>
+          <button
+            type="button"
+            data-close="code-install-dialog"
+            class="icon-button"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+        <p class="muted">
+          The ZIP must contain the complete Scripts folder for one of the exact
+          reviewed versions. RAR archives must be extracted and re-zipped
+          without changing any file bytes.
+        </p>
+        <label
+          >Local code package (.zip)<input
+            id="code-mod-file"
+            type="file"
+            accept=".zip"
+            required
+        /></label>
+        <button type="submit" class="primary">Validate &amp; install</button>
+        <hr />
+        <h3>Pal Work Priority 0.5.0</h3>
+        <p class="small muted">
+          Fetch the pinned reviewed release directly from the author's GitHub
+          tag. GameHub verifies its SHA-256 before installing it disabled.
+        </p>
+        <button type="button" id="fetch-pwp">
+          Download pinned Pal Work Priority
+        </button>
+        <p id="code-install-error" class="error" role="alert"></p>
+      </form>
     </dialog>
     <dialog id="restore-dialog">
       <form id="restore-form">

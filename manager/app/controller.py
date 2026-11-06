@@ -11,7 +11,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from . import backups, config, game_settings, mods
+from . import backups, code_mods, config, game_settings, mods
 from . import docker_service as ds
 from .downloads import download
 from .http_security import SecurityMiddleware
@@ -21,6 +21,7 @@ from .models import (
     CreateServerRequest,
     ModAction,
     RestoreRequest,
+    RuntimeChange,
     Settings,
     URLInstall,
 )
@@ -118,6 +119,13 @@ def lifecycle(sid: str, body: ActionRequest):
         return {"start": ds.start, "stop": ds.stop, "restart": ds.restart}[body.action](sid)
 
 
+@api.post("/servers/{sid}/runtime")
+def runtime_change(sid: str, body: RuntimeChange):
+    if body.action == "convert":
+        return ds.begin_convert(sid, body.confirmation, body.acknowledge_code_mods)
+    return ds.rollback_runtime(sid, body.confirmation)
+
+
 @api.get("/servers/{sid}/health")
 def game_health(sid: str):
     with ds.locked(sid, allow_job=True):
@@ -132,10 +140,10 @@ def logs(sid: str):
 
 @api.get("/servers/{sid}/players")
 def players(sid: str):
-    from .rcon_helpers import exec_rcon, parse_players
+    from .rest_helpers import players as game_players
 
     with ds.locked(sid):
-        return {"players": parse_players("palworld", exec_rcon(sid, "ShowPlayers"))}
+        return {"players": game_players(sid)}
 
 
 @api.post("/servers/{sid}/rcon")
@@ -217,6 +225,45 @@ def url_install(sid: str, body: URLInstall):
 def mod_action(sid: str, mid: str, body: ModAction):
     with ds.locked(sid):
         return mods.action(sid, mid, body.action, body.acknowledge_unverified)
+
+
+@api.get("/servers/{sid}/code-mods")
+def code_mod_list(sid: str):
+    with ds.locked(sid, allow_job=True):
+        return code_mods.list_mods(sid)
+
+
+@api.post("/servers/{sid}/code-mods/upload", status_code=201)
+async def code_mod_upload(sid: str, request: Request):
+    controller_auth(request)
+    with tempfile.TemporaryDirectory(prefix="upload-", dir=config.CONFIG_DIR) as temp:
+        target = Path(temp) / "upload"
+        total = 0
+        with target.open("xb") as output:
+            async for chunk in request.stream():
+                total += len(chunk)
+                if total > config.MAX_UPLOAD:
+                    raise HTTPException(413, "Upload size limit exceeded")
+                output.write(chunk)
+        filename = request.headers.get("x-filename", "")
+
+        def install():
+            with ds.locked(sid):
+                return code_mods.install(sid, target, filename)
+
+        return await asyncio.to_thread(install)
+
+
+@api.post("/servers/{sid}/code-mods/install-pwp", status_code=201)
+def code_mod_install_pwp(sid: str):
+    with ds.locked(sid):
+        return code_mods.install_pwp(sid)
+
+
+@api.post("/servers/{sid}/code-mods/{mid}/actions")
+def code_mod_action(sid: str, mid: str, body: ModAction):
+    with ds.locked(sid):
+        return code_mods.action(sid, mid, body.action, body.acknowledge_unverified)
 
 
 @api.get("/servers/{sid}/backups")

@@ -28,7 +28,15 @@ class CreateServerRequest(Strict):
     name: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,39}$")
     game: Literal["palworld"] = "palworld"
     game_port: int = Field(default=8211, ge=1024, le=65535)
+    runtime: Literal["native-linux", "windows-wine"] = "native-linux"
+    acknowledge_code_mods: bool = False
     settings: Settings
+
+
+class RuntimeChange(Strict):
+    confirmation: str
+    acknowledge_code_mods: bool = False
+    action: Literal["convert", "rollback"] = "convert"
 
 
 class ActionRequest(Strict):

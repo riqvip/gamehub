@@ -58,6 +58,7 @@ services:
       HOST_GAME_ROOT: ${PALWORLD_DATA_ROOT:-/opt/data/palworld/gamehub}
       CONTROLLER_TOKEN_FILE: /run/secrets/controller_token
       PALWORLD_IMAGE: ${PALWORLD_IMAGE:?Set the approved Palworld image digest in .env}
+      PALWORLD_WINE_IMAGE: ${PALWORLD_WINE_IMAGE:-thijsvanloef/palworld-server-docker@sha256:911ec2b0fd9a3392e9ab687833344d3cda025998cce7dab11a943fa4cedb3e3f}
       INSTALL_BACKEND: ${INSTALL_BACKEND:-depotdownloader}
       INSTALL_TIMEOUT_SECONDS: ${INSTALL_TIMEOUT_SECONDS:-1800}
       MOD_DOWNLOAD_HOSTS: ${MOD_DOWNLOAD_HOSTS:-}

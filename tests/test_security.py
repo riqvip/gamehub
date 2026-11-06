@@ -178,6 +178,14 @@ def test_upload_limits_and_malicious_archive_api(controller, server, monkeypatch
         ).status_code
         == 413
     )
+    assert (
+        controller.post(
+            f"/v1/servers/{server}/code-mods/upload",
+            content=b"x" * 11,
+            headers={"x-filename": "test.zip"},
+        ).status_code
+        == 413
+    )
 
 
 def test_secure_cookie_configuration(web, monkeypatch):

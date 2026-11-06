@@ -89,11 +89,16 @@ def activity(user=Depends(auth.require_auth)):
 SID = r"gh-[a-z0-9][a-z0-9_-]{0,39}"
 MID = r"mod-[a-f0-9]{16}"
 CAPABILITIES = {
-    "GET": [r"servers", rf"servers/{SID}", rf"servers/{SID}/(?:health|logs|players|settings|mods|backups)"],
+    "GET": [
+        r"servers",
+        rf"servers/{SID}",
+        rf"servers/{SID}/(?:health|logs|players|settings|mods|code-mods|backups)",
+    ],
     "POST": [
         r"servers",
-        rf"servers/{SID}/(?:actions|rcon|mods/upload|mods/url|backups|backups/restore)",
+        rf"servers/{SID}/(?:actions|rcon|mods/upload|mods/url|code-mods/upload|code-mods/install-pwp|runtime|backups|backups/restore)",
         rf"servers/{SID}/mods/{MID}/actions",
+        rf"servers/{SID}/code-mods/{MID}/actions",
     ],
     "PUT": [rf"servers/{SID}/(?:settings|backups/policy)"],
     "DELETE": [rf"servers/{SID}/backups/[a-zA-Z0-9_-]+\.zip"],

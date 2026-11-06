@@ -232,5 +232,22 @@
     "world_identity_preserved": true,
     "installation_note": "Used a separate copy of the previously validated disposable Windows installation; redundant fresh download was intentionally cancelled after slow progress",
     "result": "PASS: combined loading, save/restart, file-preserving mod toggles and configuration/world persistence; actual base/client gameplay untested"
+  },
+  "panel_runtime_test": {
+    "tested_at": "2026-11-05 America/Los_Angeles",
+    "scope": "Disposable local GameHub stack and world; no connected clients; actual gameplay untested",
+    "steps": {
+      "conversion": "PASS: verified native-world backup created; 58 Saved files copied into a separate Windows/Wine data directory; native files left intact",
+      "windows_install": "PASS: pinned Wine image setup exited 0; PalServer.exe and pinned UE4SS loader verified",
+      "pwp_install": "PASS: panel fetched the pinned 0.5.0 release and installed it disabled",
+      "base_radius_upload": "PASS: ZIP built from the supplied 1.2.2 package; its eight reviewed script hashes matched and it was installed disabled",
+      "enable": "PASS: both reviewed code mods enabled through panel actions",
+      "start": "PASS: authenticated REST initialized; PWP_READY authority marker and Base Radius v1.2.2 active marker observed",
+      "disable_reenable": "PASS: disabled Base Radius did not load and remained byte-identical; PWP stayed ready; re-enable restored both",
+      "rollback": "PASS: native runtime restored and started; separate Windows files retained for inspection"
+    },
+    "player_client_tested": false,
+    "actual_gameplay_verified": false,
+    "result": "PASS: panel conversion, reviewed install, enable/disable, startup and rollback; no client gameplay tested"
   }
 }

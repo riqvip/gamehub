@@ -2,7 +2,8 @@
 
 Investigated 2026-11-05 (America/Los_Angeles; execution logs cross into Nov 6 UTC).
 Disable Drones is excluded as requested. This investigation does not change the
-production server, migrate its world, or enable Windows runtime support in GameHub.
+production server or migrate its world. A separate per-instance Windows/Wine runtime
+is now available in GameHub; this record remains the evidence for that choice.
 
 **Current result:** the supplied Base Radius Improved 1.2.2 archive was validated
 and tested with Pal Work Priority 0.5.0 under Wine on Palworld v1.0.5.102999. Both
@@ -219,10 +220,12 @@ investigation has recreated a production container or changed its data.
 2. Run a real matching 0.5.0 client against the modded test server. Check priorities,
    limits, both mods together, reconnect and save/restart behavior. A startup marker
    cannot substitute for these checks.
-3. Add a separately approved Windows runtime choice and typed code-mod workflow to
-   GameHub. Keep fixed image policy, ownership verification, bounded operations,
-   dependency/version checks and stopped-server transactions. The current asset ZIP
-   upload must continue rejecting Lua/DLLs; do not relax it as a shortcut.
+3. ~~Add a separately approved Windows runtime choice and typed code-mod workflow to
+   GameHub.~~ Implemented as a separate per-instance Windows/Wine runtime: verified
+   native backup, separate data directory, fixed image pins, pinned UE4SS loader,
+   reviewed-version-only ZIP installs, signed manifests, stopped-server transactions
+   and native rollback. The asset ZIP upload still rejects Lua/DLLs. Real expanded-base
+   and client gameplay remain unverified.
 4. Verify a stopped-world backup before migration. Keep the native installation
    intact; create a separate Windows installation and copy the backup there.
    Preserve world ID, player data, server identity and platform-specific config,

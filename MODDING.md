@@ -1,9 +1,58 @@
-# Palworld asset mod library
+# Palworld mods
 
 For the requested Workshop mods, loader research and actual local Wine/PWP evidence,
-see [the mod investigation](docs/palworld-mod-investigation.md). This asset library
-does not implement that experimental code-mod workflow. The current native runtime
-starts with `-NoMods`; an enabled library entry is not proof of game loading.
+see [the mod investigation](docs/palworld-mod-investigation.md). GameHub now has two
+deliberately separate paths:
+
+- **Native Linux asset library** — stages PAK/UTOC/UCAS files only. The native runtime
+  still starts with `-NoMods`; an enabled library entry is not proof of game loading.
+- **Windows/Wine reviewed code mods** — a separate runtime per instance with a pinned
+  UE4SS loader and only the exact reviewed Lua packages. This executes third-party
+  code inside the game container.
+
+## Windows/Wine reviewed code mods
+
+Open **Mods → Switch to Windows/Wine**. The server must be stopped and installed.
+GameHub then:
+
+1. creates a verified backup of the native world;
+2. creates a separate `<instance>-runtime-<random>` data directory, leaving the
+   native installation untouched, and copies `Pal/Saved` into it;
+3. installs the pinned Windows server and verifies `PalServer.exe`;
+4. installs the pinned UE4SS release and creates a signed loader marker;
+5. removes the setup container and records the instance as a Windows/Wine server.
+
+The conversion and download run as a normal cancellable job. It copies `Pal/Saved`
+only, not the native asset library's staged PAK files. The original native files
+remain in place; **Return to native runtime** removes the Windows container and
+repoints the instance at the untouched native directory. The separate Windows
+directory is retained for inspection rather than deleted.
+
+Only these exact versions are accepted:
+
+| Package | Version | Source |
+| --- | --- | --- |
+| Base Radius Improved | 1.2.2 | Upload a ZIP containing the complete `Scripts` folder |
+| Pal Work Priority | 0.5.0 | **Download pinned release** (verified GitHub tag) or upload the same scripts |
+
+The panel rejects altered scripts, other versions, missing files, RAR archives and
+arbitrary Lua. Only the exact reviewed `Scripts` tree is installed; other archive
+contents are ignored and never copied into the server. Uploaded code is installed
+**disabled**;
+enabling requires an acknowledgement. Enable/disable writes `mods.txt` and preserves
+the mod files, so a later re-enable is file-preserving. Removal requires the mod to
+be disabled first. For Pal Work Priority, disable it in-game and load once before
+removal so its work permissions are restored.
+
+The server's UE4SS folder is managed: startup refuses unmanaged top-level mod files,
+changed `mods.txt`, unexpected `enabled.txt` markers and loader/script hash mismatches.
+Player PCs are not managed by GameHub. Every player needs the matching client mod
+version and UE4SS; installing only the server side does not add client UI files or
+synchronize the client installation.
+
+Actual expanded-base gameplay, Pal work coverage, client dome rendering and
+multiplayer client synchronization remain unverified. See
+[the investigation](docs/palworld-mod-investigation.md) and [TESTING.md](TESTING.md).
 
 ## Compatibility evidence
 

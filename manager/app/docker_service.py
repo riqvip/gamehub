@@ -16,6 +16,7 @@ import docker
 from docker.errors import NotFound
 
 from . import config
+from .archives import files
 from .models import Settings
 from .storage import _LOCK, atomic_json, checked, identifier, read_json
 
@@ -35,8 +36,9 @@ def initialize():
     os.umask(0o077)
     if len(config.CONTROLLER_TOKEN) < 43:
         raise RuntimeError("Controller token missing or too short")
-    if not re.fullmatch(r"thijsvanloef/palworld-server-docker@sha256:[a-f0-9]{64}", config.PALWORLD_IMAGE):
-        raise RuntimeError("PALWORLD_IMAGE must pin the approved Linux image by digest")
+    for image in (config.PALWORLD_IMAGE, config.PALWORLD_WINE_IMAGE):
+        if not re.fullmatch(r"thijsvanloef/palworld-server-docker@sha256:[a-f0-9]{64}", image):
+            raise RuntimeError("Palworld images must pin the approved repository by digest")
     if config.INSTALL_BACKEND not in ("steamcmd", "depotdownloader"):
         raise RuntimeError("Invalid installation backend")
     ipaddress.ip_address(config.GAME_BIND_IP)
@@ -91,10 +93,28 @@ def locked(server_id, allow_job=False):
 
 
 def volume_path(server_id, volume_key="data"):
-    get_instance(server_id)
+    inst = get_instance(server_id)
     if volume_key != "data":
         raise ValueError("Only the managed data directory is available")
-    return checked(config.GAME_ROOT, identifier(server_id))
+    return checked(config.GAME_ROOT, data_name(inst))
+
+
+def data_name(inst):
+    name = inst.get("data_dir", inst["id"])
+    if name != inst["id"] and not re.fullmatch(re.escape(inst["id"]) + r"-runtime-[a-f0-9]{12}", name):
+        raise ValueError("Invalid instance data directory")
+    return identifier(name)
+
+
+def runtime(inst):
+    value = inst.get("runtime", "native-linux")
+    if value not in ("native-linux", "windows-wine"):
+        raise ValueError("Unsupported runtime")
+    return value
+
+
+def image_for(inst):
+    return config.PALWORLD_WINE_IMAGE if runtime(inst) == "windows-wine" else config.PALWORLD_IMAGE
 
 
 def expected_labels(inst):
@@ -125,7 +145,7 @@ def get_container(server_id):
     ):
         raise ValueError("Container policy verification failed")
     mounts = attrs.get("Mounts", [])
-    expected = str(Path(config.HOST_GAME_ROOT) / inst["id"])
+    expected = str(Path(config.HOST_GAME_ROOT) / data_name(inst))
     if (
         len(mounts) != 1
         or mounts[0].get("Type") != "bind"
@@ -134,7 +154,7 @@ def get_container(server_id):
     ):
         raise ValueError("Container mount verification failed")
     # Image digest and immutable Docker ID, not container names, establish ownership.
-    if attrs.get("Config", {}).get("Image") != config.PALWORLD_IMAGE:
+    if attrs.get("Config", {}).get("Image") != image_for(inst):
         raise ValueError("Container image verification failed")
     return cont
 
@@ -152,6 +172,8 @@ def require_stopped(server_id):
 
 def create_instance(body):
     with _LOCK:
+        if body.runtime == "windows-wine" and not body.acknowledge_code_mods:
+            raise ValueError("Acknowledge third-party code execution before using the modded runtime")
         sid = "gh-" + body.name
         if state_path(sid).exists():
             raise ValueError("Server already exists")
@@ -169,6 +191,7 @@ def create_instance(body):
             "id": sid,
             "name": body.name,
             "game": "palworld",
+            "runtime": body.runtime,
             "game_port": body.game_port,
             "owner": secrets.token_hex(32),
             "container_id": None,
@@ -184,9 +207,115 @@ def create_instance(body):
 
 
 def public(inst):
-    return {k: v for k, v in inst.items() if k not in ("owner", "container_id", "settings")} | {
-        "state": container_state(inst["id"])
+    return {
+        k: v for k, v in inst.items() if k not in ("owner", "container_id", "settings", "previous_runtime")
+    } | {
+        "state": container_state(inst["id"]),
+        "runtime": runtime(inst),
+        "can_return_to_native": bool(inst.get("previous_runtime")),
     }
+
+
+def _copy_saved(source_root, target_root, cancel=None):
+    source = checked(source_root, "Pal/Saved")
+    if not source.is_dir():
+        return {"files": 0, "bytes": 0}
+    paths = list(files(source))
+    total = sum(path.stat().st_size for path in paths)
+    if total > config.BACKUP_MAX_BYTES:
+        raise ValueError("Saved data exceeds the conversion copy limit")
+    if shutil.disk_usage(target_root).free < total + 64 * 1024**2:
+        raise ValueError("Insufficient disk space for the separate runtime copy")
+    destination = checked(target_root, "Pal/Saved")
+    for path in paths:
+        if cancel and cancel.is_set():
+            raise TimeoutError("Runtime conversion cancelled")
+        target = checked(destination, path.relative_to(source).as_posix())
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, target, follow_symlinks=False)
+    if os.geteuid() == 0:
+        for path in [destination, *destination.rglob("*")]:
+            os.chown(path, 1000, 1000, follow_symlinks=False)
+    return {"files": len(paths), "bytes": total}
+
+
+def prepare_converted_runtime(server_id, cancel=None):
+    """Build a separate Windows data directory and keep the native one untouched."""
+    with locked(server_id, allow_job=True):
+        inst = get_instance(server_id)
+        if runtime(inst) != "native-linux":
+            raise ValueError("Only a native Linux instance can be converted")
+        if inst.get("previous_runtime"):
+            raise ValueError("This instance already retains a previous runtime")
+        if not inst.get("installed"):
+            raise ValueError("Install the native server before converting it")
+        stop(server_id)
+    from . import backups
+
+    if cancel and cancel.is_set():
+        raise TimeoutError("Runtime conversion cancelled")
+    backups.recover(server_id)
+    backup = backups.create_backup(server_id, manage_stop=False)
+    inst = get_instance(server_id)
+    old_name = data_name(inst)
+    new_name = f"{inst['id']}-runtime-{secrets.token_hex(6)}"
+    new_root = checked(config.GAME_ROOT, new_name)
+    if new_root.exists():
+        raise ValueError("Conversion target directory already exists")
+    new_root.mkdir(mode=0o700)
+    if os.geteuid() == 0:
+        os.chown(new_root, 1000, 1000)
+    try:
+        copied = _copy_saved(volume_path(server_id), new_root, cancel)
+        if cancel and cancel.is_set():
+            raise TimeoutError("Runtime conversion cancelled")
+        with locked(server_id, allow_job=True):
+            inst = get_instance(server_id)
+            if runtime(inst) != "native-linux" or data_name(inst) != old_name:
+                raise ValueError("Runtime changed during conversion")
+            remove_container(server_id)
+            inst = get_instance(server_id)
+            # The original files stay in place; only the recorded runtime moves.
+            inst["previous_runtime"] = {
+                "runtime": "native-linux",
+                "data_dir": old_name,
+                "backup": backup["filename"],
+            }
+            inst["runtime"] = "windows-wine"
+            inst["data_dir"] = new_name
+            inst["installed"] = False
+            save(inst)
+    except Exception:
+        if get_instance(server_id).get("data_dir") != new_name and new_root.exists():
+            shutil.rmtree(new_root)
+        raise
+    return {"backup": backup["filename"], **copied, "data_dir": new_name}
+
+
+def rollback_runtime(server_id, confirmation):
+    with locked(server_id):
+        inst = get_instance(server_id)
+        if confirmation != inst["name"]:
+            raise ValueError("Type the server name to confirm the runtime change")
+        previous = inst.get("previous_runtime")
+        if not previous or previous.get("runtime") != "native-linux":
+            raise ValueError("No previous native runtime is available")
+        target = checked(config.GAME_ROOT, previous["data_dir"])
+        if not target.is_dir():
+            raise ValueError("The previous native runtime directory is missing")
+        require_stopped(server_id)
+        remove_container(server_id)
+        inst = get_instance(server_id)
+        inst["runtime"] = previous["runtime"]
+        inst["data_dir"] = previous["data_dir"]
+        inst["installed"] = True
+        inst.pop("previous_runtime", None)
+        save(inst)
+        return {
+            "status": "rolled-back",
+            "runtime": inst["runtime"],
+            "note": "The separate Windows installation is retained for inspection; the native files are unchanged.",
+        }
 
 
 def runtime_env(inst, setup=False):
@@ -194,6 +323,7 @@ def runtime_env(inst, setup=False):
     return {
         "PUID": "1000",
         "PGID": "1000",
+        "SERVER_PLATFORM": "Windows" if runtime(inst) == "windows-wine" else "Linux",
         "PORT": "8211",
         "PLAYERS": str(s.players),
         "SERVER_NAME": s.server_name,
@@ -207,7 +337,10 @@ def runtime_env(inst, setup=False):
         # Only game UDP is published; this authenticated API stays on the game network.
         "REST_API_ENABLED": "true",
         "REST_API_PORT": "8212",
-        "MOD_ENABLED": "false",
+        "MOD_ENABLED": str(runtime(inst) == "windows-wine").lower(),
+        "MOD_UPDATE_ON_BOOT": "false",
+        "MOD_USE_PALDEFENDER": "false",
+        "ENABLE_PLAYER_LOGGING": "false",
         "BACKUP_ENABLED": "false",
         "AUTO_UPDATE_ENABLED": "false",
         "AUTO_REBOOT_ENABLED": "false",
@@ -229,11 +362,11 @@ def ensure_container(server_id, setup=False):
     if shutil.disk_usage(root).free < config.MIN_FREE_BYTES:
         raise ValueError("Insufficient free disk space for Palworld")
     cont = docker_client().containers.create(
-        config.PALWORLD_IMAGE,
+        image_for(inst),
         name=server_id,
         environment=runtime_env(inst, setup),
         ports={"8211/udp": (config.GAME_BIND_IP, inst["game_port"])},
-        volumes={str(Path(config.HOST_GAME_ROOT) / server_id): {"bind": "/palworld", "mode": "rw"}},
+        volumes={str(Path(config.HOST_GAME_ROOT) / data_name(inst)): {"bind": "/palworld", "mode": "rw"}},
         labels=expected_labels(inst),
         network=config.GAME_NETWORK,
         detach=True,
@@ -274,7 +407,12 @@ def start(server_id):
     from . import backups, mods
 
     backups.recover(server_id)
-    mods.recover(server_id)
+    if runtime(inst) == "windows-wine":
+        from . import code_mods
+
+        code_mods.verify(server_id)
+    else:
+        mods.recover(server_id)
     cont = ensure_container(server_id)
     cont.start()
     return {"status": "started", "note": "Container started; game readiness is checked separately."}
@@ -332,14 +470,15 @@ def stats(server_id):
     )
     try:
         processes = cont.top().get("Processes", [])
-        result["game_process_running"] = any("PalServer-Linux" in " ".join(p) for p in processes)
+        result["game_process_running"] = any(
+            any(name in " ".join(p) for name in ("PalServer-Linux", "PalServer-Win64")) for p in processes
+        )
     except docker.errors.APIError:
         pass
     try:
-        from .rcon_helpers import exec_rcon
+        from .rest_helpers import game_info
 
-        response = exec_rcon(server_id, "Info")
-        result["game_initialized"] = "Pal Server" in response or "Palworld" in response
+        result["game_initialized"] = bool(game_info(server_id).get("version"))
     except (OSError, ValueError):
         result["game_initialized"] = False
     return result
@@ -370,7 +509,7 @@ def job_log(server_id, message):
 def pull_image(server_id, cancel, deadline):
     # Separate process makes stalled client calls cancellable. No shell, no user command.
     proc = subprocess.Popen(  # nosec B603
-        [sys.executable, "-m", "app.pull", config.PALWORLD_IMAGE],
+        [sys.executable, "-m", "app.pull", image_for(get_instance(server_id))],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
@@ -420,11 +559,17 @@ def run_install(server_id, cancel, update):
             if cont.status == "exited":
                 if cont.attrs.get("State", {}).get("ExitCode") != 0:
                     raise ValueError("Palworld installer failed. Inspect container logs.")
-                binary = checked(volume_path(server_id), "PalServer.sh")
+                windows = runtime(get_instance(server_id)) == "windows-wine"
+                binary = checked(volume_path(server_id), "PalServer.exe" if windows else "PalServer.sh")
                 if not binary.is_file():
-                    raise ValueError("Installer exited without the expected PalServer.sh")
+                    raise ValueError("Installer exited without the expected server executable")
                 break
         with locked(server_id, allow_job=True):
+            if runtime(get_instance(server_id)) == "windows-wine":
+                from . import code_mods
+
+                job_log(server_id, "Verifying and preparing the pinned UE4SS loader.")
+                code_mods.prepare_runtime(server_id, deadline=deadline, cancel=cancel)
             remove_container(server_id)
             inst = get_instance(server_id)
             inst["installed"] = True
@@ -467,6 +612,63 @@ def begin_install(server_id, update=False):
         _cancel[server_id] = cancel
         threading.Thread(target=run_install, args=(server_id, cancel, update), daemon=True).start()
     return {"status": "queued"}
+
+
+def run_convert(server_id, cancel):
+    try:
+        job_log(server_id, "Stopping the native server and creating a verified world backup.")
+        prepared = prepare_converted_runtime(server_id, cancel)
+        job_log(
+            server_id,
+            f"Backup {prepared['backup']} verified; copied {prepared['files']} Saved files "
+            "into a separate Windows installation.",
+        )
+        if cancel.is_set():
+            raise TimeoutError("Runtime conversion cancelled")
+        job_log(server_id, "Installing the Windows/Wine runtime and pinned UE4SS loader.")
+        run_install(server_id, cancel, False)
+    except Exception as exc:
+        try:
+            with locked(server_id, allow_job=True):
+                stop(server_id)
+        except Exception:
+            job_log(server_id, "Could not confirm the game container stopped; inspect it before retrying.")
+        job_save(
+            server_id,
+            state="cancelled" if cancel.is_set() else "error",
+            error=str(exc)[:500],
+            finished_at=time.time(),
+        )
+
+
+def begin_convert(server_id, confirmation, acknowledge):
+    with locked(server_id):
+        inst = get_instance(server_id)
+        if confirmation != inst["name"]:
+            raise ValueError("Type the server name to confirm the runtime change")
+        if not acknowledge:
+            raise ValueError("Acknowledge third-party code execution before using the modded runtime")
+        if runtime(inst) != "native-linux":
+            raise ValueError("Only a native Linux instance can be converted")
+        if inst.get("previous_runtime"):
+            raise ValueError("This instance already retains a previous runtime")
+        if not inst.get("installed"):
+            raise ValueError("Install the native server before converting it")
+        inst["job"] = {
+            "state": "running",
+            "kind": "convert",
+            "started_at": time.time(),
+            "log": [],
+            "error": "",
+        }
+        save(inst)
+        cancel = threading.Event()
+        _cancel[server_id] = cancel
+        threading.Thread(target=run_convert, args=(server_id, cancel), daemon=True).start()
+    return {
+        "status": "queued",
+        "note": "Native files are retained; conversion progress is reported separately.",
+    }
 
 
 def cancel_install(server_id):
