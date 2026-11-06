@@ -4,11 +4,16 @@ Investigated 2026-11-05 (America/Los_Angeles; execution logs cross into Nov 6 UT
 Disable Drones is excluded as requested. This investigation does not change the
 production server, migrate its world, or enable Windows runtime support in GameHub.
 
+**Current result:** the supplied Base Radius Improved 1.2.2 archive was validated
+and tested with Pal Work Priority 0.5.0 under Wine on Palworld v1.0.5.102999. Both
+load together; save/restart and file-preserving disable/re-enable of Base Radius
+passed on disposable data. Actual expanded-base and client gameplay remain untested.
+
 ## Exact selection and compatibility
 
 | Package | Workshop ID | Evidence and decision |
 | --- | --- | --- |
-| [Base Radius Improved](https://steamcommunity.com/sharedfiles/filedetails/?id=3765017449) | 3765017449 | Author documents Windows dedicated installation and an authority-role log check. Candidate for Wine; not locally validated because the anonymous official Workshop download failed. Need the complete subscribed Workshop folder, including all eight Lua files. |
+| [Base Radius Improved](https://steamcommunity.com/sharedfiles/filedetails/?id=3765017449) | 3765017449 | Supplied 1.2.2 package loads alongside PWP in Wine, creates its configuration and reads the vanilla radius. Restart/disable/re-enable passed. No real base/client gameplay or Base Radius authority callback has been established. |
 | [Pal Work Priority](https://steamcommunity.com/sharedfiles/filedetails/?id=3786408856) | 3786408856 | Current release 0.5.0 supports Windows dedicated servers. Server and modded clients must match exactly. Locally loaded under Wine and reached authority readiness on Palworld v1.0.5.102999; no client/gameplay test performed. |
 | [Sensible Monitoring — Better Site Management](https://steamcommunity.com/sharedfiles/filedetails/?id=3806457819) | 3806457819 | Release 0.1.2 explicitly disables remote-client controls. Tested by its author in Windows single-player; dedicated/co-op unverified. Installing it on a server does not add its missing multiplayer controls. Exclude from the initial server test set. |
 | [Sensible Base Shape — Square Bases](https://steamcommunity.com/sharedfiles/filedetails/?id=3806036478) | 3806036478 | Release 0.1.1 validates the supported Windows executable; only single-player tested. Dedicated servers and combination with other base-range mods remain unverified. Includes a native helper, so Lua portability alone is insufficient. Exclude from the initial server test set. |
@@ -77,8 +82,45 @@ The first disposable experiment established:
 
 The WSL host has about 8 GiB RAM and other local workloads. These empty-world tests
 are not a capacity, stability, real-player, client synchronization, Pal work-priority,
-or expanded-radius gameplay acceptance test. They do not establish compatibility of
-both mods together, nor of the two Sensible mods.
+or expanded-radius gameplay acceptance test. Combined startup does not establish
+combined gameplay compatibility, nor compatibility of the two Sensible mods.
+
+### Supplied Base Radius Improved archive
+
+The subsequent `3765017449.rar` attachment is 296,495 bytes, SHA-256
+`dc6c2789f7e249b9d39e32db9198dd40219d8b47f1e29f0b7e348f1c005c7b1a`.
+Offline inspection found 11 regular files totaling 384,030 bytes, plus two
+directories. All expected paths/sizes and extraction success were checked before
+staging. The package includes Info.json naming `BaseRadiusImproved` version 1.2.2
+and eight Lua scripts. Only those scripts were staged into the disposable server;
+the attachment and third-party source are not committed or redistributed.
+
+The real combined test observed:
+
+- Both mods load together on v1.0.5.102999 with no initialization failure.
+- Base Radius logs `v1.2.2 active` and `pristine snapshot captured (vanilla radius 3500)`.
+  Its generated configuration contains 35 levels, with default radius from 35 m
+  at level 1 to 94.5 m at level 35. Those are configuration values, not observed
+  player/base behavior.
+- Container recreation retains the world identity and Base Radius configuration.
+- Removing Base Radius's enable marker and its mods.txt entry stops it loading;
+  Pal Work Priority still reaches authority readiness. All original scripts and
+  the configuration remain. Restoring both controls loads Base Radius again.
+- Each run checks authenticated info/players/save and rejects unauthenticated save;
+  the runtime logs its successful save/shutdown. No OOM occurred.
+
+The optional combined harness was checked against a separate copy of the already
+validated disposable Windows installation. An additional fresh download was
+intentionally cancelled after slow Steam progress; it is not reported as a passed
+fresh-install test. The original Windows/PWP fresh install had passed earlier.
+
+**Base Radius authority is not yet verified.** Its source logs that role only once
+base-camp objects exist. The test world has no player-built camp, so the missing
+role line is recorded as unverified rather than treated as proof of success or
+failure. Pal Work Priority's independent authority-readiness marker was observed.
+Pal work coverage beyond the original radius, client dome rendering, upgrade UI,
+client config synchronization, and two mods' real gameplay together still need a
+matching client and a disposable base.
 
 ### Reproduce the Wine/PWP smoke test
 
@@ -87,6 +129,19 @@ From the repository, using the development dependencies and local Docker access:
 ```bash
 .venv/bin/python scripts/wine-mod-smoke.py
 ```
+
+To include the supplied package, extract it offline into a separate directory and
+pass the folder that directly contains Info.json and Scripts:
+
+```bash
+.venv/bin/python scripts/wine-mod-smoke.py --base-radius-workshop /path/to/3765017449
+```
+
+The optional path accepts only the reviewed 1.2.2 package and the exact SHA-256 of
+each of its eight scripts. Altered scripts, unexpected files, symlinks, missing
+files and other versions fail before Docker starts. The combined run also tests
+disable/re-enable without deleting source or changing the configuration. This does
+**not** add RAR, Lua or DLL support to the panel's asset upload endpoint.
 
 This creates a **new** `.validation/wine-mod-test-*` directory on every run. It
 downloads the Windows server, verifies the pinned loader and source ZIP hashes,
@@ -134,6 +189,10 @@ complete Workshop folder from a subscribed client. No alternate account, credent
 unofficial downloader, protected endpoint scraping or permission bypass was used.
 All retry containers were removed; the live server was untouched.
 
+The user subsequently supplied the complete archive above, resolving the missing
+package input without sharing Steam credentials. The anonymous-download limitation
+remains relevant to future automated updates.
+
 ## Shutdown configuration defect found during testing
 
 Both pinned runtime variants implement graceful save/shutdown through their internal
@@ -154,9 +213,9 @@ investigation has recreated a production container or changed its data.
 
 ## Remaining work before use on a live world
 
-1. Obtain the full Base Radius Improved subscribed Workshop folder from an authorized
-   client (`steamapps/workshop/content/1623730/3765017449`); test its authority log,
-   radius, Pal coverage and save/reload on fresh disposable data.
+1. Test Base Radius Improved's authority log, actual radius, Pal coverage and
+   save/reload using a player-built base on fresh disposable data. The complete
+   authorized 1.2.2 package has now been supplied; another copy is not needed.
 2. Run a real matching 0.5.0 client against the modded test server. Check priorities,
    limits, both mods together, reconnect and save/restart behavior. A startup marker
    cannot substitute for these checks.

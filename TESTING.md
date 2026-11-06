@@ -12,7 +12,7 @@ uv pip install --python .venv/bin/python -r requirements-dev.txt
 bash scripts/check.sh
 ```
 
-**89 automated tests passed.**
+**93 automated tests passed.**
 
 The suite exercises authentication, session expiry/revocation, CSRF, throttling,
 CORS/Origin and security headers, proxy trust chains, controller authentication,
@@ -37,6 +37,16 @@ the image's save/shutdown handlers succeeded. Regression coverage ensures REST
 is enabled without publishing either management port. Both runtime wrappers
 returned 143 after Docker's SIGTERM while logging successful REST save/shutdown;
 that wrapper exit code is recorded rather than represented as a zero exit.
+
+The supplied Base Radius Improved 1.2.2 archive was subsequently validated and
+loaded alongside PWP. The optional `--base-radius-workshop` lab argument pins all
+eight Lua hashes; regression tests reject altered/missing scripts, unreviewed
+versions, extra executable files and symlinks, and prevent changing mods while the
+lab container is active. Real combined tests cover startup, configuration creation,
+save/restart, file-preserving disable/re-enable and world/configuration persistence.
+There were no player-built bases or connected clients: Base Radius's authority
+callback and actual expanded-base gameplay remain unverified. The panel's asset
+library continues to reject executable code packages and RAR uploads.
 
 The WSL execution sandbox prevents Starlette TestClient's thread event loop from
 starting even for an empty FastAPI app; tests were run with approved loopback/thread

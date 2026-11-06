@@ -44,14 +44,193 @@
   "base_radius": {
     "workshop_id": "3765017449",
     "anonymous_download": "Failed (SteamCMD returned 0 despite download failure)",
-    "runtime_test": "Not run; complete authorized package required",
+    "runtime_test": "PASS: both mods load; restart, file-preserving disable/enable, save/shutdown, and world identity; no actual base/client gameplay tested",
     "download_retry": {
       "steamcmd": "Failed again; zero process exit did not mean a successful download",
       "official_public_metadata": "Success; direct file_url empty",
       "depotdownloader": "App 1623730 (Palworld) is not available from this account.",
       "package_files_downloaded": false,
-      "required_next_input": "Authorized Steam account access or complete subscribed Workshop folder"
-    }
+      "required_next_input": "Authorized Steam account access or complete subscribed Workshop folder",
+      "resolution": "User supplied complete 1.2.2 archive; no further files or Steam credentials needed for this version"
+    },
+    "archive_sha256": "dc6c2789f7e249b9d39e32db9198dd40219d8b47f1e29f0b7e348f1c005c7b1a",
+    "version": "1.2.2",
+    "package_received": true,
+    "actual_base_gameplay_verified": false,
+    "authority_callback_verified": false,
+    "file_preserving_disable_reenable": true,
+    "configuration_preserved": true
   },
-  "unauthenticated_save_rejected": true
+  "unauthenticated_save_rejected": true,
+  "combined_mod_test": {
+    "image": "thijsvanloef/palworld-server-docker@sha256:911ec2b0fd9a3392e9ab687833344d3cda025998cce7dab11a943fa4cedb3e3f",
+    "loader_sha256": "f7543d57f8fdf5eab3731ac52121e6e7ff142fb3bfa17156e931037d0e44875b",
+    "pwp_commit": "dcc4811dc1117ef58a4f491d09c0513123ca0036",
+    "scope": "Empty disposable world, no clients; no gameplay compatibility claim",
+    "stages": {
+      "combo": {
+        "exit_code": 143,
+        "oom": false,
+        "rest_save_logged": true,
+        "rest_shutdown_logged": true
+      },
+      "restart": {
+        "exit_code": 143,
+        "oom": false,
+        "rest_save_logged": true,
+        "rest_shutdown_logged": true
+      },
+      "disable": {
+        "exit_code": 143,
+        "oom": false,
+        "rest_save_logged": true,
+        "rest_shutdown_logged": true
+      },
+      "reenable": {
+        "exit_code": 143,
+        "oom": false,
+        "rest_save_logged": true,
+        "rest_shutdown_logged": true
+      }
+    },
+    "base_radius": {
+      "version": "1.2.2",
+      "archive_sha256": "dc6c2789f7e249b9d39e32db9198dd40219d8b47f1e29f0b7e348f1c005c7b1a",
+      "phases": {
+        "combo": {
+          "loaded": true,
+          "messages": [
+            "[2026-11-06 05:30:21.3794254] [Lua] [BaseRadiusImproved] no config found - wrote a default template to ../../Saved/BaseRadiusImproved/config.json",
+            "[2026-11-06 05:30:21.3878880] [Lua] [BaseRadiusImproved] v1.2.2 active - radius by level: 35 entries, level 1 = 3500 (35m) to level 35 = 9450 (94.50m), cap 20000 (200m) [defaults] - config file: ../../Saved/BaseRadiusImproved/config.json",
+            "[2026-11-06 05:30:38.1899534] [Lua] [BaseRadiusImproved] pristine snapshot captured (vanilla radius 3500)"
+          ],
+          "config_created": true,
+          "config_sha256": "e44807121a27d4dc25faaced588ae397355a4975123f7f881dd42923869d260d",
+          "authority_logged": false
+        },
+        "restart": {
+          "loaded": true,
+          "messages": [
+            "[2026-11-06 05:30:54.5516994] [Lua] [BaseRadiusImproved] v1.2.2 active - radius by level: 35 entries, level 1 = 3500 (35m) to level 35 = 9450 (94.50m), cap 20000 (200m) - config file: ../../Saved/BaseRadiusImproved/config.json",
+            "[2026-11-06 05:31:07.4235129] [Lua] [BaseRadiusImproved] pristine snapshot captured (vanilla radius 3500)"
+          ],
+          "config_created": true,
+          "config_sha256": "e44807121a27d4dc25faaced588ae397355a4975123f7f881dd42923869d260d",
+          "authority_logged": false
+        },
+        "disable": {
+          "loaded": false,
+          "messages": [],
+          "config_created": true,
+          "config_sha256": "e44807121a27d4dc25faaced588ae397355a4975123f7f881dd42923869d260d",
+          "authority_logged": false
+        },
+        "reenable": {
+          "loaded": true,
+          "messages": [
+            "[2026-11-06 05:31:51.8269231] [Lua] [BaseRadiusImproved] v1.2.2 active - radius by level: 35 entries, level 1 = 3500 (35m) to level 35 = 9450 (94.50m), cap 20000 (200m) - config file: ../../Saved/BaseRadiusImproved/config.json",
+            "[2026-11-06 05:32:02.0506612] [Lua] [BaseRadiusImproved] pristine snapshot captured (vanilla radius 3500)"
+          ],
+          "config_created": true,
+          "config_sha256": "e44807121a27d4dc25faaced588ae397355a4975123f7f881dd42923869d260d",
+          "authority_logged": false
+        }
+      }
+    },
+    "unauthenticated_save_rejected": true,
+    "info": {
+      "version": "v1.0.5.102999",
+      "servername": "Disposable Wine mod test",
+      "description": ""
+    },
+    "pwp_authority_ready": true,
+    "result": "PASS: both mods load; restart, file-preserving disable/enable, save/shutdown, and world identity; no actual base/client gameplay tested"
+  },
+  "combined_mod_harness_test": {
+    "image": "thijsvanloef/palworld-server-docker@sha256:911ec2b0fd9a3392e9ab687833344d3cda025998cce7dab11a943fa4cedb3e3f",
+    "loader_sha256": "f7543d57f8fdf5eab3731ac52121e6e7ff142fb3bfa17156e931037d0e44875b",
+    "pwp_commit": "dcc4811dc1117ef58a4f491d09c0513123ca0036",
+    "scope": "Empty disposable world, no clients; no gameplay compatibility claim",
+    "stages": {
+      "boot": {
+        "exit_code": 143,
+        "oom": false,
+        "rest_save_logged": true,
+        "rest_shutdown_logged": true
+      },
+      "restart": {
+        "exit_code": 143,
+        "oom": false,
+        "rest_save_logged": true,
+        "rest_shutdown_logged": true
+      },
+      "disable": {
+        "exit_code": 143,
+        "oom": false,
+        "rest_save_logged": true,
+        "rest_shutdown_logged": true
+      },
+      "reenable": {
+        "exit_code": 143,
+        "oom": false,
+        "rest_save_logged": true,
+        "rest_shutdown_logged": true
+      }
+    },
+    "base_radius": {
+      "version": "1.2.2",
+      "script_sha256": {
+        "adoption.lua": "4a03ac4f7dbf94c7b97eb9c037d027912a6e1f9d9c65f8ca8cedcd05255ca237",
+        "config.lua": "27ddff1115189ff3aced60cc9ec4a51a479faf9a9b950b2497b227bbe2973c8a",
+        "json.lua": "0eaccda57fabc0330736de25f45cf589821a42b5e0fe02e4e3125f7dc0bf2b7e",
+        "main.lua": "92dd5c8d4ce46b2eb8c99d7708f7aa83a60850b4271f6a2cefe14fa95ab3d3d2",
+        "radius.lua": "3d9689f1fa22112cfa5d0e349871625fa5bd4413314715449505c0cd6465d85a",
+        "ring.lua": "636018c7bca053a33d0a89124765cb269994abdb903ffe7ae3acdb7c3d43b0e9",
+        "sync.lua": "527e691dd8ad4fccc0dbe4da07e635712b6b4677460942982929b7791c9b9a69",
+        "ui.lua": "76faeeb7395236ba12f54d83de535a12c835f9d0bd548323aebe94e99c4c7b3a"
+      },
+      "checks": [
+        {
+          "enabled": true,
+          "active_logged": true,
+          "vanilla_snapshot_logged": true,
+          "authority_logged": false,
+          "config_sha256": "e44807121a27d4dc25faaced588ae397355a4975123f7f881dd42923869d260d"
+        },
+        {
+          "enabled": true,
+          "active_logged": true,
+          "vanilla_snapshot_logged": true,
+          "authority_logged": false,
+          "config_sha256": "e44807121a27d4dc25faaced588ae397355a4975123f7f881dd42923869d260d"
+        },
+        {
+          "enabled": false,
+          "active_logged": false,
+          "vanilla_snapshot_logged": false,
+          "authority_logged": false,
+          "config_sha256": "e44807121a27d4dc25faaced588ae397355a4975123f7f881dd42923869d260d"
+        },
+        {
+          "enabled": true,
+          "active_logged": true,
+          "vanilla_snapshot_logged": true,
+          "authority_logged": false,
+          "config_sha256": "e44807121a27d4dc25faaced588ae397355a4975123f7f881dd42923869d260d"
+        }
+      ],
+      "file_preserving_disable_reenable": true,
+      "configuration_preserved": true
+    },
+    "unauthenticated_save_rejected": true,
+    "info": {
+      "version": "v1.0.5.102999",
+      "servername": "Disposable Wine mod test",
+      "description": ""
+    },
+    "pwp_authority_ready": true,
+    "world_identity_preserved": true,
+    "installation_note": "Used a separate copy of the previously validated disposable Windows installation; redundant fresh download was intentionally cancelled after slow progress",
+    "result": "PASS: combined loading, save/restart, file-preserving mod toggles and configuration/world persistence; actual base/client gameplay untested"
+  }
 }

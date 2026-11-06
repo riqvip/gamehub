@@ -6,6 +6,7 @@ Third-party code executes only inside the restricted game container. This is a
 startup/save/restart smoke test, not multiplayer or mod gameplay acceptance.
 """
 
+import argparse
 import hashlib
 import json
 import os
@@ -20,7 +21,7 @@ import docker
 import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "manager"))
-from app.archives import copy_tree, extract_zip  # noqa: E402
+from app.archives import copy_tree, extract_zip, files  # noqa: E402
 from app.storage import checked  # noqa: E402
 
 IMAGE = "thijsvanloef/palworld-server-docker@sha256:911ec2b0fd9a3392e9ab687833344d3cda025998cce7dab11a943fa4cedb3e3f"
@@ -29,6 +30,43 @@ LOADER_SHA = "f7543d57f8fdf5eab3731ac52121e6e7ff142fb3bfa17156e931037d0e44875b"
 PWP_COMMIT = "dcc4811dc1117ef58a4f491d09c0513123ca0036"
 PWP_URL = f"https://codeload.github.com/Matraweber/PalWorkPriority/zip/{PWP_COMMIT}"
 PWP_SHA = "03f7e7ceaa9156b2029dc81a0d120debb2c34918fd89ea853f6c4ad2f252483a"
+BASE_RADIUS_FILES = {
+    "adoption.lua": "4a03ac4f7dbf94c7b97eb9c037d027912a6e1f9d9c65f8ca8cedcd05255ca237",
+    "config.lua": "27ddff1115189ff3aced60cc9ec4a51a479faf9a9b950b2497b227bbe2973c8a",
+    "json.lua": "0eaccda57fabc0330736de25f45cf589821a42b5e0fe02e4e3125f7dc0bf2b7e",
+    "main.lua": "92dd5c8d4ce46b2eb8c99d7708f7aa83a60850b4271f6a2cefe14fa95ab3d3d2",
+    "radius.lua": "3d9689f1fa22112cfa5d0e349871625fa5bd4413314715449505c0cd6465d85a",
+    "ring.lua": "636018c7bca053a33d0a89124765cb269994abdb903ffe7ae3acdb7c3d43b0e9",
+    "sync.lua": "527e691dd8ad4fccc0dbe4da07e635712b6b4677460942982929b7791c9b9a69",
+    "ui.lua": "76faeeb7395236ba12f54d83de535a12c835f9d0bd548323aebe94e99c4c7b3a",
+}
+
+
+def validate_base_radius(source):
+    source = checked(source)
+    if not source.is_dir():
+        raise ValueError("Provide the extracted Workshop folder, not an archive")
+    expected = {"Scripts/" + name for name in BASE_RADIUS_FILES}
+    optional = {".workshop.json", "thumbnail.png", "enabled.txt"}
+    found = set()
+    total = 0
+    for path in files(source):
+        total += path.stat().st_size
+        if total > 2 * 1024**2 or len(found) >= 20:
+            raise ValueError("Base Radius package exceeds expected limits")
+        name = path.relative_to(source).as_posix()
+        if name not in expected | optional | {"Info.json"}:
+            raise ValueError("Unexpected Base Radius package file: " + name)
+        found.add(name)
+    if not expected | {"Info.json"} <= found:
+        raise ValueError("Base Radius package is incomplete; all eight Lua files are required")
+    meta = json.loads((source / "Info.json").read_text(encoding="utf-8"))
+    if meta.get("PackageName") != "BaseRadiusImproved" or meta.get("Version") != "1.2.2":
+        raise ValueError("Only the reviewed BaseRadiusImproved 1.2.2 package is supported in this test")
+    for name, expected_hash in BASE_RADIUS_FILES.items():
+        if hashlib.sha256((source / "Scripts" / name).read_bytes()).hexdigest() != expected_hash:
+            raise ValueError("Base Radius script checksum mismatch: " + name)
+    return source
 
 
 def download(url, expected, dest):
@@ -54,6 +92,7 @@ class Lab:
         self.root, self.client = root, client
         self.owner = secrets.token_hex(24)
         self.password = secrets.token_urlsafe(32)
+        self.base_radius_enabled = None
         self.game = root / "game"
         self.game.mkdir(mode=0o700)
         self.report = {
@@ -70,6 +109,8 @@ class Lab:
             priority_log = self.game / "Pal/Binaries/Win64/ue4ss/Mods/PalWorkPriority/priority.log"
             if priority_log.exists():
                 priority_log.unlink()
+            if self.base_radius_enabled is not None:
+                (self.game / "Pal/Binaries/Win64/ue4ss/UE4SS.log").unlink(missing_ok=True)
         env = {
             "PUID": "1000",
             "PGID": "1000",
@@ -172,6 +213,27 @@ class Lab:
     def save_report(self):
         (self.root / "result.json").write_text(json.dumps(self.report, indent=2) + "\n")
 
+    def stage_base_radius(self, source):
+        source = validate_base_radius(source)
+        target = self.game / "Pal/Binaries/Win64/ue4ss/Mods/BaseRadiusImproved"
+        copy_tree(source / "Scripts", target / "Scripts")
+        self.report["base_radius"] = {"version": "1.2.2", "script_sha256": BASE_RADIUS_FILES}
+        self.set_base_radius_enabled(True)
+
+    def set_base_radius_enabled(self, enabled):
+        if (self.root / "active-container-id").exists():
+            raise RuntimeError("Stop the disposable container before changing its mods")
+        mods = self.game / "Pal/Binaries/Win64/ue4ss/Mods"
+        marker = mods / "BaseRadiusImproved/enabled.txt"
+        if enabled:
+            marker.touch()
+        else:
+            marker.unlink(missing_ok=True)
+        (mods / "mods.txt").write_text(
+            "PalWorkPriority : 1\n" + ("BaseRadiusImproved : 1\n" if enabled else "")
+        )
+        self.base_radius_enabled = enabled
+
     def check_ready(self, http, info):
         mods = self.game / "Pal/Binaries/Win64/ue4ss/Mods/PalWorkPriority"
         deadline = time.monotonic() + 30
@@ -192,11 +254,37 @@ class Lab:
         response.raise_for_status()
         self.report["info"] = info
         self.report["pwp_authority_ready"] = True
+        if self.base_radius_enabled is not None:
+            log = (mods.parents[1] / "UE4SS.log").read_text(errors="replace")
+            messages = [line for line in log.splitlines() if "[BaseRadiusImproved]" in line]
+            loaded = any("v1.2.2 active" in line for line in messages)
+            if loaded != self.base_radius_enabled:
+                raise RuntimeError("Base Radius loading state does not match its enable/disable state")
+            if any("FAIL-CLOSED:" in line or "startup failed:" in line for line in messages):
+                raise RuntimeError("Base Radius reported initialization failure")
+            config_file = self.game / "Pal/Saved/BaseRadiusImproved/config.json"
+            if not config_file.is_file():
+                raise RuntimeError("Base Radius did not create its persistent configuration")
+            self.report["base_radius"].setdefault("checks", []).append(
+                {
+                    "enabled": self.base_radius_enabled,
+                    "active_logged": loaded,
+                    "vanilla_snapshot_logged": any("pristine snapshot captured" in line for line in messages),
+                    "authority_logged": any("role: authority" in line for line in messages),
+                    "config_sha256": hashlib.sha256(config_file.read_bytes()).hexdigest(),
+                }
+            )
+            # An empty world has no camp; the mod logs authority only once camps exist.
+            print("PASS: Base Radius loading state checked; base gameplay remains untested", flush=True)
         print("PASS: authenticated info/players/save and PWP server authority readiness", flush=True)
         return info
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--base-radius-workshop", type=Path, help="Extracted reviewed 1.2.2 Workshop folder")
+    args = parser.parse_args()
+    base_radius = validate_base_radius(args.base_radius_workshop) if args.base_radius_workshop else None
     if os.getuid() != 1000 or os.getgid() != 1000:
         raise RuntimeError("Run as local UID/GID 1000, never sudo; game test UID is fixed at 1000")
     repo = Path(__file__).resolve().parents[1]
@@ -230,11 +318,30 @@ def main():
         copy_tree(root / f"pwp/PalWorkPriority-{PWP_COMMIT}/Scripts", mods / "PalWorkPriority/Scripts")
         (mods / "PalWorkPriority/enabled.txt").touch()
         (mods / "mods.txt").write_text("PalWorkPriority : 1\n")
+        if base_radius:
+            lab.stage_base_radius(base_radius)
         first = lab.run("boot", lab.check_ready)
         second = lab.run("restart", lab.check_ready)
         if not first.get("worldguid") or first["worldguid"] != second.get("worldguid"):
             raise RuntimeError("World identity was not preserved across container recreation")
-        for phase in ("boot", "restart"):
+        phases = ["boot", "restart"]
+        if base_radius:
+            for phase, enabled in (("disable", False), ("reenable", True)):
+                lab.set_base_radius_enabled(enabled)
+                info = lab.run(phase, lab.check_ready)
+                if info.get("worldguid") != first["worldguid"]:
+                    raise RuntimeError("World identity changed after mod toggle")
+                phases.append(phase)
+            # Toggling must preserve every original script byte, not merely a directory.
+            for name, digest in BASE_RADIUS_FILES.items():
+                data = (mods / "BaseRadiusImproved/Scripts" / name).read_bytes()
+                if hashlib.sha256(data).hexdigest() != digest:
+                    raise RuntimeError("Base Radius source changed during its lifecycle test")
+            checks = lab.report["base_radius"]["checks"]
+            if len({check["config_sha256"] for check in checks}) != 1:
+                raise RuntimeError("Base Radius configuration changed during empty-world mod toggles")
+            lab.report["base_radius"]["file_preserving_disable_reenable"] = True
+        for phase in phases:
             result = lab.report["stages"][phase]
             if result["oom"] or not result["rest_save_logged"] or not result["rest_shutdown_logged"]:
                 raise RuntimeError(f"{phase}: clean save/shutdown not established")
