@@ -1,32 +1,28 @@
-# Separate proxy stack. Starts with ONLY its admin UI published to the specified
-# Tailscale address. Public HTTP/HTTPS listeners are not published until opted in.
+# Separate host-network proxy stack. Admin binds to the specified Tailscale IP.
+# HTTP/HTTPS bind to loopback until NPM_PROXY_IP is explicitly changed.
 name: npmplus
 services:
   npmplus:
     image: zoeyvid/npmplus@sha256:244fbf14f0c8bfb969434bfacba14ba71f8eee9911a2466035e640d64e594178
     restart: "on-failure:3"
     stop_grace_period: 30s
-    ports:
-      - "${NPM_ADMIN_IP:?Set NPM_ADMIN_IP to the host Tailscale IPv4 address}:81:81/tcp"
+    network_mode: host
     cap_drop: [ALL]
     cap_add: [NET_BIND_SERVICE, SETGID]
     security_opt: [no-new-privileges:true]
     environment:
       TZ: ${TZ:-UTC}
+      NPM_IPV4_BINDING: ${NPM_ADMIN_IP:?Set NPM_ADMIN_IP to the host Tailscale IPv4 address}
+      IPV4_BINDING: ${NPM_PROXY_IP:-127.0.0.1}
       DISABLE_IPV6: "true"
       DISABLE_H3_QUIC: "true"
       NGINX_WORKER_PROCESSES: "2"
       INITIAL_DEFAULT_PAGE: "444"
     volumes:
       - ${NPM_DATA_ROOT:-/opt/data/npmplus}:/data
-    networks: [frontend]
     mem_limit: 1g
     cpus: 1
     pids_limit: 256
     logging:
       driver: json-file
       options: {max-size: "10m", max-file: "3"}
-networks:
-  frontend:
-    external: true
-    name: ${GAMEHUB_FRONTEND_NETWORK:-gamehub_frontend}

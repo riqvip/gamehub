@@ -1,9 +1,11 @@
 # NPMplus for GameHub
 
 This optional **separate stack** initially exposes only the NPMplus administrator
-interface on the operator-specified Tailscale IPv4 address, TCP 81. It publishes
-neither public port 80 nor public port 443, even if router forwards already exist.
-It uses a Docker bridge and has no Docker socket, host networking or game-data mounts.
+interface on the operator-specified Tailscale IPv4 address, TCP 81. HTTP and HTTPS
+initially listen only on host loopback, even if router forwards already exist.
+It uses host networking as explicitly requested by the operator, with no Docker
+socket or game-data mounts. This shares the host network namespace; it has less
+network isolation than the previously tested bridge setup.
 No SSH, Tailscale or firewall configuration is changed.
 
 ## First start
@@ -24,11 +26,11 @@ adjacent `.env` containing:
 
 ```dotenv
 NPM_ADMIN_IP=YOUR_HOST_TAILSCALE_IPV4
+NPM_PROXY_IP=127.0.0.1
 TZ=America/Los_Angeles
 ```
 
-The existing GameHub stack must have created `gamehub_frontend`; customize
-`GAMEHUB_FRONTEND_NETWORK` if its project name differs. Then run:
+No shared Docker network is required. Then run:
 
 ```bash
 cd /opt/stacks/npmplus
@@ -45,7 +47,7 @@ Never forward router port 81 to this service.
 ## Before publishing GameHub
 
 The chosen dashboard hostname is `gamehub.riqvip.dev`. NPMplus can reach the web
-container as `gamehub-web-1:8000` on the frontend bridge. Use the HTTP upstream
+container through `127.0.0.1:8000` on the host. Use the HTTP upstream
 scheme; the browser-facing proxy terminates HTTPS. Configure the original Host
 header normally, add the domain to GameHub's `ALLOWED_HOSTS`, keep `COOKIE_SECURE=true`,
 and configure explicit trusted proxy IPs before relying on client-IP throttling.
@@ -58,18 +60,19 @@ serves the certificate directly. If the Cloudflare HTTP proxy is intentionally u
 configure Full (strict), review its upload limits, and establish a separate policy
 for trusted Cloudflare source addresses.
 
-Adding public port mappings is a later explicit step, after TLS, login, origin trust
-and access policy are validated. Public router forwarding alone will not expose a
-listener that this initial Compose file does not publish. Palworld UDP 8211 remains
+After TLS, login, origin trust and access policy are validated, set `NPM_PROXY_IP`
+to the host's reserved LAN IPv4 address and recreate only this proxy service.
+Host networking does not use Compose `ports` mappings. Public router forwarding
+alone will not expose a listener bound only to loopback. Palworld UDP 8211 remains
 separate from this HTTP proxy. Account sharing still grants full GameHub administrator
 access; individual roles are not implemented by the current GameHub release.
 
 ## Validation and sources
 
-The pinned image was checked in a disposable local bridge container with only
-loopback admin TCP 18081 published. Its built-in health check passed, the private
-HTTPS page returned HTTP 200, and it reached the disposable web health endpoint
-without controller or Docker access. This is an integration smoke test, not a full
+The pinned image was first checked in a disposable local bridge container, then
+the requested host-network configuration was checked using alternate loopback ports.
+The admin HTTPS endpoint and connection to the disposable web health endpoint were
+checked without controller or Docker access. This is an integration smoke test, not a full
 security audit of NPMplus or its third-party dependencies.
 
 The configuration adapts the [upstream Compose policy](https://github.com/ZoeyVid/NPMplus/blob/develop/compose.yaml)
