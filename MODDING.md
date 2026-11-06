@@ -1,5 +1,10 @@
 # Palworld asset mod library
 
+For the requested Workshop mods, loader research and actual local Wine/PWP evidence,
+see [the mod investigation](docs/palworld-mod-investigation.md). This asset library
+does not implement that experimental code-mod workflow. The current native runtime
+starts with `-NoMods`; an enabled library entry is not proof of game loading.
+
 ## Compatibility evidence
 
 Pocketpair's [current server mod guide](https://docs.palworldgame.com/settings-and-operation/mod/)

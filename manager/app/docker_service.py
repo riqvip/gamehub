@@ -203,7 +203,10 @@ def runtime_env(inst, setup=False):
         "COMMUNITY": "false",
         "RCON_ENABLED": "true",
         "RCON_PORT": "25575",
-        "REST_API_ENABLED": "false",
+        # The pinned runtime saves and gracefully shuts down through its own REST API.
+        # Only game UDP is published; this authenticated API stays on the game network.
+        "REST_API_ENABLED": "true",
+        "REST_API_PORT": "8212",
         "MOD_ENABLED": "false",
         "BACKUP_ENABLED": "false",
         "AUTO_UPDATE_ENABLED": "false",

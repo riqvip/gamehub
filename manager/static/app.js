@@ -395,7 +395,7 @@ function renderMods() {
         let ack = false;
         if (!m.enabled) {
           ack = confirm(
-            "This mod is unverified on native Linux. Have you checked the author's dedicated Linux instructions and backed up your world? Enable anyway?",
+            "This stages the package's files. Game mod loading is disabled in the current runtime, so staging does not activate the mod in-game. Continue?",
           );
           if (!ack) return;
         }

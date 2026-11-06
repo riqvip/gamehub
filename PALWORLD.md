@@ -39,6 +39,13 @@ ShowPlayers, Save, Broadcast, KickPlayer and BanPlayer; enter supported game arg
 in the command field. Player listing is best-effort and may be unavailable while
 initializing or when a game version changes its RCON behavior.
 
+The runtime's authenticated REST API is also enabled on container port 8212 because
+the pinned image uses it for graceful save/shutdown. It is never published to the
+host. Existing containers need controlled recreation to receive environment changes;
+restarting only the controller does not apply them. See the
+[mod investigation](docs/palworld-mod-investigation.md) for the defect found during
+Wine testing and the separate experimental Windows runtime.
+
 Health reports independently:
 
 - Container running: Docker state.

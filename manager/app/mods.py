@@ -181,7 +181,10 @@ def list_mods(server_id):
     return {
         "installed": manifest["mods"],
         "events": read_json(library(server_id) / "events.json", []),
-        "compatibility_note": "Native Linux loading is unverified. Official Workshop server support is currently Windows-only.",
+        "compatibility_note": (
+            "Asset staging only: the current runtime disables game mod loading. "
+            "UE4SS, Lua and Workshop code mods require a separate runtime and are unsupported here."
+        ),
         "nexus_url": "https://www.nexusmods.com/palworld",
         "restart_required": True,
     }

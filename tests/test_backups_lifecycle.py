@@ -104,6 +104,16 @@ def test_container_policy_and_unknown_instance(isolated, server):
     assert cont.status == "created"
 
 
+def test_runtime_can_save_on_shutdown_without_publishing_management_ports(server):
+    cont = ds.ensure_container(server)
+    env = cont.kwargs["environment"]
+    assert env["REST_API_ENABLED"] == "true"
+    assert env["REST_API_PORT"] == "8212"
+    assert env["ADMIN_PASSWORD"] == ds.get_instance(server)["settings"]["admin_password"]
+    assert set(cont.kwargs["ports"]) == {"8211/udp"}
+    assert cont.kwargs["network"] != "host"
+
+
 @pytest.mark.parametrize(
     "field,value",
     [

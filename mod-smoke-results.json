@@ -1,0 +1,50 @@
+{
+  "image": "thijsvanloef/palworld-server-docker@sha256:911ec2b0fd9a3392e9ab687833344d3cda025998cce7dab11a943fa4cedb3e3f",
+  "loader_sha256": "f7543d57f8fdf5eab3731ac52121e6e7ff142fb3bfa17156e931037d0e44875b",
+  "pwp_commit": "dcc4811dc1117ef58a4f491d09c0513123ca0036",
+  "scope": "Empty disposable world, no clients; no gameplay compatibility claim",
+  "stages": {
+    "install": {
+      "exit_code": 0,
+      "oom": false,
+      "rest_save_logged": false,
+      "rest_shutdown_logged": false
+    },
+    "boot": {
+      "exit_code": 143,
+      "oom": false,
+      "rest_save_logged": true,
+      "rest_shutdown_logged": true
+    },
+    "restart": {
+      "exit_code": 143,
+      "oom": false,
+      "rest_save_logged": true,
+      "rest_shutdown_logged": true
+    }
+  },
+  "info": {
+    "version": "v1.0.5.102999",
+    "servername": "Disposable Wine mod test",
+    "description": ""
+  },
+  "pwp_authority_ready": true,
+  "result": "PASS: startup/save/container recreation; multiplayer gameplay untested",
+  "world_identity_preserved": true,
+  "native_shutdown_fix": {
+    "game_version": "v1.0.5.102999",
+    "authenticated_info": true,
+    "authenticated_save": true,
+    "runtime_save_logged": true,
+    "runtime_shutdown_logged": true,
+    "exit_code": 143,
+    "oom": false
+  },
+  "tested_at": "2026-11-05 America/Los_Angeles",
+  "base_radius": {
+    "workshop_id": "3765017449",
+    "anonymous_download": "Failed (SteamCMD returned 0 despite download failure)",
+    "runtime_test": "Not run; complete authorized package required"
+  },
+  "unauthenticated_save_rejected": true
+}

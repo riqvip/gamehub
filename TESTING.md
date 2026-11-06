@@ -12,7 +12,7 @@ uv pip install --python .venv/bin/python -r requirements-dev.txt
 bash scripts/check.sh
 ```
 
-**88 automated tests passed.**
+**89 automated tests passed.**
 
 The suite exercises authentication, session expiry/revocation, CSRF, throttling,
 CORS/Origin and security headers, proxy trust chains, controller authentication,
@@ -22,6 +22,21 @@ mod conflicts/dependencies/enable/disable/update/rollback, failed directory publ
 configuration injection, backup/restore confirmation/checksums/retention, forced-kill
 handling, lifecycle state, initialization reporting, bounded install failure and cancellation.
 Docker is mocked for unit tests; all files are disposable pytest data.
+
+The subsequent [requested mod investigation](docs/palworld-mod-investigation.md)
+adds a reproducible `scripts/wine-mod-smoke.py` experiment. Its real Windows/Wine
+Palworld v1.0.5.102999 run loaded Pal Work Priority 0.5.0 with authority readiness,
+authenticated REST info/players/save, graceful save/shutdown and a second container
+start retaining the same empty-world identity. It publishes no ports and never
+mounts existing game data. This does not add Wine support to the panel or establish
+client/gameplay compatibility. Evidence is in [the result record](mod-smoke-results.json).
+
+The REST shutdown configuration fix was also tested against a separate native
+container using a copy of the disposable dev world: authenticated info/save and
+the image's save/shutdown handlers succeeded. Regression coverage ensures REST
+is enabled without publishing either management port. Both runtime wrappers
+returned 143 after Docker's SIGTERM while logging successful REST save/shutdown;
+that wrapper exit code is recorded rather than represented as a zero exit.
 
 The WSL execution sandbox prevents Starlette TestClient's thread event loop from
 starting even for an empty FastAPI app; tests were run with approved loopback/thread

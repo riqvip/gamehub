@@ -46,3 +46,21 @@ packages/versions and counts are in docs/security-scan-summary.json. These are r
 acceptance risks, not treated as resolved by non-root execution or a private network.
 A real native Linux third-party mod has not been validated; no compatibility claim is
 made from synthetic archive tests.
+
+## Follow-up mod runtime investigation
+
+The [Wine/UE4SS investigation](docs/palworld-mod-investigation.md) established local
+Pal Work Priority authority readiness on an empty Windows server; it does not make
+Windows/code-mod support available through GameHub. Native asset staging is now
+explicitly labeled as staging with game loading disabled.
+
+Testing also found that both pinned images require their internal REST API for the
+save/shutdown handler. The controller now enables authenticated REST on port 8212
+without publishing it. A native disposable-world copy and the Wine experiment both
+logged successful save/shutdown with this configuration. Existing containers retain
+their old environment until controlled recreation; this is not an automatic repair
+of a running production instance.
+
+The experimental Wine image scan has 6 critical and 203 high package findings;
+2 critical and 23 high have reported fixed versions. Findings and affected critical
+packages are retained in docs/security-scan-summary.json and remain unresolved.
