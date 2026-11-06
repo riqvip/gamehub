@@ -44,7 +44,14 @@
   "base_radius": {
     "workshop_id": "3765017449",
     "anonymous_download": "Failed (SteamCMD returned 0 despite download failure)",
-    "runtime_test": "Not run; complete authorized package required"
+    "runtime_test": "Not run; complete authorized package required",
+    "download_retry": {
+      "steamcmd": "Failed again; zero process exit did not mean a successful download",
+      "official_public_metadata": "Success; direct file_url empty",
+      "depotdownloader": "App 1623730 (Palworld) is not available from this account.",
+      "package_files_downloaded": false,
+      "required_next_input": "Authorized Steam account access or complete subscribed Workshop folder"
+    }
   },
   "unauthenticated_save_rejected": true
 }

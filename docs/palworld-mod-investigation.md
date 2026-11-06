@@ -112,6 +112,28 @@ Third-party files are fetched for the local test, not bundled into GameHub or
 redistributed. Treat Lua/native mods as executable third-party code trusted inside
 the game container. They are outside the ordinary asset-upload policy.
 
+### Download retry: confirmed account restriction
+
+Retried on 2026-11-05 in fresh restricted local containers:
+
+- Official SteamCMD anonymous Workshop download failed again for item 3765017449.
+  Its process still returned zero, so the download log and missing package files
+  were checked rather than treating the exit code as success.
+- Steam's official public `ISteamRemoteStorage/GetPublishedFileDetails/v1/` API
+  returned successful public metadata for this item, but an empty `file_url`.
+  There is no public direct-download URL in that response.
+- [DepotDownloader's documented Workshop mode](https://github.com/SteamRE/DepotDownloader#downloading-a-workshop-item-using-pubfile-id)
+  (`-app 1623730 -pubfile 3765017449`) connected and logged in anonymously, then
+  explicitly reported **`App 1623730 (Palworld) is not available from this account.`**
+  No mod files were downloaded.
+
+This confirms an anonymous-account access limitation in the tested official paths,
+not merely a guessed network timeout. Further anonymous retries cannot establish
+the missing account access. Continue with an authorized Steam account or the
+complete Workshop folder from a subscribed client. No alternate account, credentials,
+unofficial downloader, protected endpoint scraping or permission bypass was used.
+All retry containers were removed; the live server was untouched.
+
 ## Shutdown configuration defect found during testing
 
 Both pinned runtime variants implement graceful save/shutdown through their internal
